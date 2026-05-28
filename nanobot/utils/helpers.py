@@ -1,7 +1,22 @@
 """Utility functions for nanobot."""
 
+import os
 from pathlib import Path
 from datetime import datetime
+
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+def _get_project_root() -> Path:
+    """Get project root, respecting NANOBOT_HOME env var if set."""
+    if "NANOBOT_HOME" in os.environ:
+        return Path(os.environ["NANOBOT_HOME"])
+    return Path.home()
+
+
+PROJECT_ROOT = _get_project_root()
 
 
 def ensure_dir(path: Path) -> Path:
@@ -11,24 +26,24 @@ def ensure_dir(path: Path) -> Path:
 
 
 def get_data_path() -> Path:
-    """Get the nanobot data directory (~/.nanobot)."""
-    return ensure_dir(Path.home() / ".nanobot")
+    """Get the nanobot data directory (<NANOBOT_HOME>/.nanobot or <project_root>/.nanobot)."""
+    return ensure_dir(PROJECT_ROOT / ".nanobot")
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:
     """
     Get the workspace path.
-    
+
     Args:
-        workspace: Optional workspace path. Defaults to ~/.nanobot/workspace.
-    
+        workspace: Optional workspace path. Defaults to <project_root>/.nanobot/workspace.
+
     Returns:
         Expanded and ensured workspace path.
     """
     if workspace:
         path = Path(workspace).expanduser()
     else:
-        path = Path.home() / ".nanobot" / "workspace"
+        path = PROJECT_ROOT / ".nanobot" / "workspace"
     return ensure_dir(path)
 
 

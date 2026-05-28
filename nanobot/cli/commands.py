@@ -18,6 +18,9 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.patch_stdout import patch_stdout
 
+from nanobot.utils.helpers import PROJECT_ROOT
+from nanobot.utils.helpers import get_workspace_path
+
 from nanobot import __version__, __logo__
 
 app = typer.Typer(
@@ -86,7 +89,7 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".nanobot" / "history" / "cli_history"
+    history_file = PROJECT_ROOT / ".nanobot" / "history" / "cli_history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
@@ -316,7 +319,7 @@ def gateway(
     config = load_config()
     bus = MessageBus()
     provider = _make_provider(config)
-    session_manager = SessionManager(config.workspace_path)
+    session_manager = SessionManager(get_workspace_path())
     
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
@@ -326,7 +329,7 @@ def gateway(
     agent = AgentLoop(
         bus=bus,
         provider=provider,
-        workspace=config.workspace_path,
+        workspace=get_workspace_path(),
         model=config.agents.defaults.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
@@ -362,7 +365,7 @@ def gateway(
         return await agent.process_direct(prompt, session_key="heartbeat")
     
     heartbeat = HeartbeatService(
-        workspace=config.workspace_path,
+        workspace=get_workspace_path(),
         on_heartbeat=on_heartbeat,
         interval_s=30 * 60,  # 30 minutes
         enabled=True
@@ -433,7 +436,7 @@ def agent(
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
-        workspace=config.workspace_path,
+        workspace=get_workspace_path(),
         model=config.agents.defaults.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
@@ -545,7 +548,7 @@ def channels_status():
     )
 
     # Mochat
-    mc = config.channels.mochat
+    mc = config.channels.mochatn
     mc_base = mc.base_url or "[dim]not configured[/dim]"
     table.add_row(
         "Mochat",
@@ -580,7 +583,7 @@ def _get_bridge_dir() -> Path:
     import subprocess
     
     # User's bridge location
-    user_bridge = Path.home() / ".nanobot" / "bridge"
+    user_bridge = PROJECT_ROOT / ".nanobot" / "bridge"
     
     # Check if already built
     if (user_bridge / "dist" / "index.js").exists():
@@ -825,7 +828,7 @@ def status():
 
     config_path = get_config_path()
     config = load_config()
-    workspace = config.workspace_path
+    workspace = get_workspace_path()
 
     console.print(f"{__logo__} nanobot Status\n")
 

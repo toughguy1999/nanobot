@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from pathlib import Path
 from loguru import logger
 from telegram import BotCommand, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -13,6 +14,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
+from nanobot.utils.helpers import PROJECT_ROOT
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -283,8 +285,7 @@ class TelegramChannel(BaseChannel):
                 ext = self._get_extension(media_type, getattr(media_file, 'mime_type', None))
                 
                 # Save to workspace/media/
-                from pathlib import Path
-                media_dir = Path.home() / ".nanobot" / "media"
+                media_dir = PROJECT_ROOT / ".nanobot" / "media"
                 media_dir.mkdir(parents=True, exist_ok=True)
                 
                 file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
