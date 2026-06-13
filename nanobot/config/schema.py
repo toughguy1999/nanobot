@@ -142,6 +142,13 @@ class QQConfig(BaseModel):
     allow_from: list[str] = Field(default_factory=list)  # Allowed user openids (empty = public access)
 
 
+class WebConfig(BaseModel):
+    """Web channel configuration using FastAPI + WebSocket."""
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 8765
+
+
 class ChannelsConfig(BaseModel):
     """Configuration for chat channels."""
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
@@ -153,6 +160,7 @@ class ChannelsConfig(BaseModel):
     email: EmailConfig = Field(default_factory=EmailConfig)
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
+    web: WebConfig = Field(default_factory=WebConfig)
 
 
 class AgentDefaults(BaseModel):
