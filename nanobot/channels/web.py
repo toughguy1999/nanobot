@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
 from loguru import logger
 
@@ -52,6 +53,13 @@ class WebChannel(BaseChannel):
         self._server: uvicorn.Server | None = None
         self._ws_manager = WebSocketManager()
 
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=config.cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET"],
+            allow_headers=["*"],
+        )
         self._setup_routes()
 
     def _setup_routes(self) -> None:

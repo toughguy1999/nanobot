@@ -147,6 +147,12 @@ class WebConfig(BaseModel):
     enabled: bool = False
     host: str = "0.0.0.0"
     port: int = 8765
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
 
 
 class ChannelsConfig(BaseModel):
