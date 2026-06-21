@@ -1,24 +1,16 @@
 import type { ServerMessage } from "@/lib/types";
 
-export const DEFAULT_HTTP_URL = "http://localhost:8765";
 export const DEFAULT_WS_URL = "ws://localhost:8765/ws";
-
-export function getHttpUrl() {
-  return (process.env.NEXT_PUBLIC_NANOBOT_HTTP_URL ?? DEFAULT_HTTP_URL).replace(/\/$/, "");
-}
 
 export function getWebSocketUrl() {
   return process.env.NEXT_PUBLIC_NANOBOT_WS_URL ?? DEFAULT_WS_URL;
 }
 
-export async function checkServerStatus() {
-  const response = await fetch(`${getHttpUrl()}/status`, {
-    cache: "no-store"
+export function serializeClientMessage(sessionId: string, content: string) {
+  return JSON.stringify({
+    sessionId,
+    content
   });
-
-  if (!response.ok) {
-    throw new Error(`服务端状态检查失败：${response.status}`);
-  }
 }
 
 export function parseServerMessage(rawValue: string): ServerMessage {
@@ -32,8 +24,13 @@ export function parseServerMessage(rawValue: string): ServerMessage {
     return { error: data.error };
   }
 
-  if ("content" in data && typeof data.content === "string") {
-    return { content: data.content };
+  if (
+    "sessionId" in data &&
+    typeof data.sessionId === "string" &&
+    "content" in data &&
+    typeof data.content === "string"
+  ) {
+    return { sessionId: data.sessionId, content: data.content };
   }
 
   return { error: "服务端返回了无法识别的消息" };

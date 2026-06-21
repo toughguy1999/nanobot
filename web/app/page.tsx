@@ -6,15 +6,15 @@ import { ConversationView } from "@/components/ConversationView";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { MessageInput } from "@/components/MessageInput";
 import { Sidebar } from "@/components/Sidebar";
-import { appendMessageToSession, createMessage, createSession } from "@/lib/session";
 import {
-  loadActiveSessionId,
-  loadSessions,
-  saveActiveSessionId,
-  saveSessions
-} from "@/lib/storage";
+  checkServerStatus,
+  createRemoteSession,
+  fetchSessionMessages,
+  fetchSessions
+} from "@/lib/api";
+import { appendMessageToSession, createMessage, createSession } from "@/lib/session";
 import type { ConnectionStatus, Session } from "@/lib/types";
-import { checkServerStatus, getWebSocketUrl, parseServerMessage } from "@/lib/websocket";
+import { getWebSocketUrl, parseServerMessage, serializeClientMessage } from "@/lib/websocket";
 
 function getConnectionLabel(status: ConnectionStatus) {
   if (status === "connected") {
@@ -36,39 +36,11 @@ export default function ChatPage() {
   const [inputValue, setInputValue] = useState("");
 
   const websocketRef = useRef<WebSocket | null>(null);
-  const pendingSessionIdsRef = useRef<string[]>([]);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions]
   );
-
-  useEffect(() => {
-    const storedSessions = loadSessions();
-    const storedActiveSessionId = loadActiveSessionId();
-
-    if (storedSessions.length === 0) {
-      const firstSession = createSession();
-      setSessions([firstSession]);
-      setActiveSessionId(firstSession.id);
-      return;
-    }
-
-    setSessions(storedSessions);
-    setActiveSessionId(
-      storedSessions.some((session) => session.id === storedActiveSessionId)
-        ? storedActiveSessionId
-        : storedSessions[0].id
-    );
-  }, []);
-
-  useEffect(() => {
-    saveSessions(sessions);
-  }, [sessions]);
-
-  useEffect(() => {
-    saveActiveSessionId(activeSessionId);
-  }, [activeSessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,10 +50,18 @@ export default function ChatPage() {
 
       try {
         await checkServerStatus();
+        const serverSessions = await fetchSessions();
+        const firstSession =
+          serverSessions.length > 0
+            ? await fetchSessionMessages(serverSessions[0].id)
+            : createSession();
 
         if (cancelled) {
           return;
         }
+
+        setSessions([firstSession, ...serverSessions.slice(1)]);
+        setActiveSessionId(firstSession.id);
 
         const websocket = new WebSocket(getWebSocketUrl());
         websocketRef.current = websocket;
@@ -100,15 +80,10 @@ export default function ChatPage() {
               return;
             }
 
-            const sessionId = pendingSessionIdsRef.current.shift();
-            if (!sessionId) {
-              return;
-            }
-
             setSessions((currentSessions) =>
               appendMessageToSession(
                 currentSessions,
-                sessionId,
+                message.sessionId,
                 createMessage("assistant", message.content)
               )
             );
@@ -158,11 +133,32 @@ export default function ChatPage() {
     setErrorMessage(null);
   }
 
-  function handleSend() {
+  async function handleSelectSession(sessionId: string) {
+    setActiveSessionId(sessionId);
+    setErrorMessage(null);
+
+    try {
+      const selectedSession = sessions.find((session) => session.id === sessionId);
+      if (selectedSession && !selectedSession.key) {
+        return;
+      }
+
+      const session = await fetchSessionMessages(sessionId);
+      setSessions((currentSessions) =>
+        currentSessions.map((currentSession) =>
+          currentSession.id === session.id ? session : currentSession
+        )
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "获取历史消息失败");
+    }
+  }
+
+  async function handleSend() {
     const content = inputValue.trim();
     const websocket = websocketRef.current;
 
-    if (!content || !activeSessionId || connectionStatus !== "connected") {
+    if (!content || !activeSessionId || !activeSession || connectionStatus !== "connected") {
       return;
     }
 
@@ -175,6 +171,25 @@ export default function ChatPage() {
     const sendingSessionId = activeSessionId;
     const userMessage = createMessage("user", content);
 
+    if (!activeSession.key) {
+      try {
+        const remoteSession = await createRemoteSession(sendingSessionId);
+        setSessions((currentSessions) =>
+          currentSessions.map((session) =>
+            session.id === sendingSessionId
+              ? {
+                  ...remoteSession,
+                  messages: session.messages
+                }
+              : session
+          )
+        );
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "创建会话失败");
+        return;
+      }
+    }
+
     setSessions((currentSessions) =>
       appendMessageToSession(currentSessions, sendingSessionId, userMessage)
     );
@@ -182,15 +197,8 @@ export default function ChatPage() {
     setErrorMessage(null);
 
     try {
-      pendingSessionIdsRef.current.push(sendingSessionId);
-      websocket.send(
-        JSON.stringify({
-          sessionId: sendingSessionId,
-          content
-        })
-      );
+      websocket.send(serializeClientMessage(sendingSessionId, content));
     } catch {
-      pendingSessionIdsRef.current.pop();
       setConnectionStatus("disconnected");
       setErrorMessage("消息发送失败，请检查 WebSocket 连接");
     }
@@ -204,7 +212,7 @@ export default function ChatPage() {
         activeSessionId={activeSessionId}
         sessions={sessions}
         onCreateSession={handleCreateSession}
-        onSelectSession={setActiveSessionId}
+        onSelectSession={handleSelectSession}
       />
 
       <section className="flex min-w-0 flex-1 flex-col">

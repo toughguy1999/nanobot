@@ -5,12 +5,18 @@ export type ChatMessage = {
   role: ChatRole;
   content: string;
   createdAt: string;
+  metadata?: Record<string, unknown>;
 };
 
-export type Session = {
+export type SessionSummary = {
   id: string;
+  key?: string;
+  sessionTitle?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type Session = SessionSummary & {
   messages: ChatMessage[];
 };
 
@@ -18,6 +24,7 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 export type ServerMessage =
   | {
+      sessionId: string;
       content: string;
     }
   | {

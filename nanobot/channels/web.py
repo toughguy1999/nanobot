@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
 from loguru import logger
@@ -12,6 +14,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import WebConfig
+from nanobot.session.manager import Session, SessionManager
 
 
 class WebSocketManager:
@@ -52,12 +55,13 @@ class WebChannel(BaseChannel):
         self.app = FastAPI(lifespan=self._lifespan)
         self._server: uvicorn.Server | None = None
         self._ws_manager = WebSocketManager()
+        self._sessions = SessionManager()
 
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=config.cors_origins,
             allow_credentials=True,
-            allow_methods=["GET"],
+            allow_methods=["GET", "POST"],
             allow_headers=["*"],
         )
         self._setup_routes()
@@ -69,9 +73,94 @@ class WebChannel(BaseChannel):
         async def status():
             return {"status": "ok"}
 
+        @self.app.get("/sessions")
+        async def list_sessions():
+            sessions = [
+                self._serialize_session_summary(item)
+                for item in self._sessions.list_sessions(
+                    channel=self.name,
+                    backfill_session_title=True,
+                )
+            ]
+            return {"sessions": sessions}
+
+        @self.app.post("/sessions")
+        async def create_session(payload: dict):
+            session_id = self._parse_session_id(payload)
+            session = self._sessions.get_or_create(self._session_key(session_id))
+            self._sessions.save(session)
+            return {"session": self._serialize_session(session)}
+
+        @self.app.get("/sessions/{session_id}/messages")
+        async def get_session_messages(session_id: str):
+            session = self._sessions.get(self._session_key(session_id), refresh=True)
+            if session is None:
+                raise HTTPException(status_code=404, detail="session not found")
+
+            return {
+                "session": self._serialize_session(session),
+                "messages": [
+                    self._serialize_message(session, message, index)
+                    for index, message in enumerate(session.messages)
+                ],
+            }
+
         @self.app.websocket("/ws")
         async def ws_endpoint(websocket: WebSocket):
             await self._handle_ws(websocket)
+
+    def _session_key(self, session_id: str) -> str:
+        if not session_id or ":" in session_id:
+            raise HTTPException(status_code=400, detail="invalid sessionId")
+        return f"{self.name}:{session_id}"
+
+    def _parse_session_id(self, payload: dict) -> str:
+        session_id = payload.get("sessionId")
+        if not isinstance(session_id, str):
+            raise HTTPException(status_code=400, detail="sessionId is required")
+        self._session_key(session_id)
+        return session_id
+
+    def _serialize_session_summary(self, item: dict) -> dict:
+        key = item["key"]
+        session_id = key.removeprefix(f"{self.name}:")
+        metadata = item.get("metadata") or {}
+        return {
+            "id": session_id,
+            "key": key,
+            "sessionTitle": metadata.get("sessionTitle"),
+            "createdAt": item.get("created_at"),
+            "updatedAt": item.get("updated_at"),
+        }
+
+    def _serialize_session(self, session: Session) -> dict:
+        session_id = session.key.removeprefix(f"{self.name}:")
+        return {
+            "id": session_id,
+            "key": session.key,
+            "sessionTitle": session.metadata.get("sessionTitle"),
+            "createdAt": session.created_at.isoformat(),
+            "updatedAt": session.updated_at.isoformat(),
+        }
+
+    def _serialize_message(self, session: Session, message: dict, index: int) -> dict:
+        metadata = {
+            key: value
+            for key, value in message.items()
+            if key not in {"role", "content", "timestamp"}
+        }
+        if "tools_used" in metadata:
+            metadata["toolsUsed"] = metadata.pop("tools_used")
+
+        data = {
+            "id": f"{session.key}:{index}",
+            "role": message.get("role"),
+            "content": message.get("content", ""),
+            "createdAt": message.get("timestamp"),
+        }
+        if metadata:
+            data["metadata"] = metadata
+        return data
 
     async def _handle_ws(self, websocket: WebSocket) -> None:
         """Handle WebSocket connection."""
@@ -156,4 +245,4 @@ class WebChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Handle outbound messages and send to WebSocket."""
         session_id = msg.chat_id  # chat_id is the session_id
-        await self._ws_manager.send_to(session_id, {"content": msg.content})
+        await self._ws_manager.send_to(session_id, {"sessionId": session_id, "content": msg.content})

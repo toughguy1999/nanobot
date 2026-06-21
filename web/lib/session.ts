@@ -40,6 +40,8 @@ export function appendMessageToSession(
 
     return {
       ...session,
+      sessionTitle:
+        message.role === "user" && !session.sessionTitle ? message.content : session.sessionTitle,
       updatedAt: message.createdAt,
       messages: [...session.messages, message]
     };
@@ -47,6 +49,12 @@ export function appendMessageToSession(
 }
 
 export function getSessionTitle(session: Session) {
+  if (session.sessionTitle) {
+    return session.sessionTitle.length > 28
+      ? `${session.sessionTitle.slice(0, 28)}...`
+      : session.sessionTitle;
+  }
+
   const firstUserMessage = session.messages.find((message) => message.role === "user");
 
   if (!firstUserMessage) {
