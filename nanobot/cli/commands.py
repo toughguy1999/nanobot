@@ -56,9 +56,11 @@ def _flush_pending_tty_input() -> None:
         return
 
     try:
-        import termios
-        termios.tcflush(fd, termios.TCIFLUSH)
-        return
+        if sys.platform != "win32":
+            import termios
+
+            termios.tcflush(fd, termios.TCIFLUSH)
+            return
     except Exception:
         pass
 
@@ -78,8 +80,10 @@ def _restore_terminal() -> None:
     if _SAVED_TERM_ATTRS is None:
         return
     try:
-        import termios
-        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _SAVED_TERM_ATTRS)
+        if sys.platform != "win32":
+            import termios
+
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _SAVED_TERM_ATTRS)
     except Exception:
         pass
 
@@ -90,8 +94,10 @@ def _init_prompt_session() -> None:
 
     # Save terminal state so we can restore it on exit
     try:
-        import termios
-        _SAVED_TERM_ATTRS = termios.tcgetattr(sys.stdin.fileno())
+        if sys.platform != "win32":
+            import termios
+
+            _SAVED_TERM_ATTRS = termios.tcgetattr(sys.stdin.fileno())
     except Exception:
         pass
 

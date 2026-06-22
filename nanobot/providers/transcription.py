@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import BinaryIO, IO
 
 import httpx
 from loguru import logger
@@ -40,8 +41,9 @@ class GroqTranscriptionProvider:
         try:
             async with httpx.AsyncClient() as client:
                 with open(path, "rb") as f:
-                    files = {
-                        "file": (path.name, f),
+                    file_handle: BinaryIO = f
+                    files: dict[str, tuple[str | None, IO[bytes] | str]] = {
+                        "file": (path.name, file_handle),
                         "model": (None, "whisper-large-v3"),
                     }
                     headers = {

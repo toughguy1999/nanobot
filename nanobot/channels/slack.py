@@ -2,8 +2,10 @@
 
 import asyncio
 import re
+from typing import Awaitable, Callable, cast
 
 from loguru import logger
+from slack_sdk.socket_mode.async_client import AsyncBaseSocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.socket_mode.websockets import SocketModeClient
@@ -44,7 +46,11 @@ class SlackChannel(BaseChannel):
             web_client=self._web_client,
         )
 
-        self._socket_client.socket_mode_request_listeners.append(self._on_socket_request)
+        listener = cast(
+            Callable[[AsyncBaseSocketModeClient, SocketModeRequest], Awaitable[None]],
+            self._on_socket_request,
+        )
+        self._socket_client.socket_mode_request_listeners.append(listener)
 
         # Resolve bot user ID for mention handling
         try:
@@ -152,11 +158,12 @@ class SlackChannel(BaseChannel):
         thread_ts = event.get("thread_ts") or event.get("ts")
         # Add :eyes: reaction to the triggering message (best-effort)
         try:
-            if self._web_client and event.get("ts"):
+            ts = event.get("ts")
+            if self._web_client and isinstance(ts, str):
                 await self._web_client.reactions_add(
                     channel=chat_id,
                     name="eyes",
-                    timestamp=event.get("ts"),
+                    timestamp=ts,
                 )
         except Exception as e:
             logger.debug(f"Slack reactions_add failed: {e}")

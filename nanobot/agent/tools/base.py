@@ -1,7 +1,9 @@
 """Base class for agent tools."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TypeAlias
+
+ClassInfo: TypeAlias = type[Any] | tuple[type[Any], ...]
 
 
 class Tool(ABC):
@@ -12,7 +14,7 @@ class Tool(ABC):
     the environment, such as reading files, executing commands, etc.
     """
 
-    _TYPE_MAP = {
+    _TYPE_MAP: dict[str, ClassInfo] = {
         "string": str,
         "integer": int,
         "number": (int, float),
@@ -40,7 +42,7 @@ class Tool(ABC):
         pass
 
     @abstractmethod
-    async def execute(self, **kwargs: Any) -> str:
+    async def execute(self, *args: Any, **kwargs: Any) -> str:
         """
         Execute the tool with given parameters.
 

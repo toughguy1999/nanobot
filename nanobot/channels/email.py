@@ -230,6 +230,7 @@ class EmailChannel(BaseChannel):
         messages: list[dict[str, Any]] = []
         mailbox = self.config.imap_mailbox or "INBOX"
 
+        client: imaplib.IMAP4 | imaplib.IMAP4_SSL
         if self.config.imap_use_ssl:
             client = imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port)
         else:

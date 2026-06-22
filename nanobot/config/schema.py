@@ -1,7 +1,7 @@
 """Configuration schema using Pydantic."""
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic_settings import BaseSettings
+from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class WhatsAppConfig(BaseModel):
@@ -291,7 +291,7 @@ class Config(BaseSettings):
                 return spec.default_api_base
         return None
 
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         env_prefix="NANOBOT_",
         env_nested_delimiter="__"
     )

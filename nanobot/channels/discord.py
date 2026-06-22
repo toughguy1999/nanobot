@@ -26,7 +26,7 @@ class DiscordChannel(BaseChannel):
     def __init__(self, config: DiscordConfig, bus: MessageBus):
         super().__init__(config, bus)
         self.config: DiscordConfig = config
-        self._ws: websockets.WebSocketClientProtocol | None = None
+        self._ws: Any | None = None
         self._seq: int | None = None
         self._heartbeat_task: asyncio.Task | None = None
         self._typing_tasks: dict[str, asyncio.Task] = {}
@@ -240,13 +240,18 @@ class DiscordChannel(BaseChannel):
     async def _start_typing(self, channel_id: str) -> None:
         """Start periodic typing indicator for a channel."""
         await self._stop_typing(channel_id)
+        if self._http is None:
+            return
 
         async def typing_loop() -> None:
             url = f"{DISCORD_API_BASE}/channels/{channel_id}/typing"
             headers = {"Authorization": f"Bot {self.config.token}"}
             while self._running:
+                client = self._http
+                if client is None:
+                    break
                 try:
-                    await self._http.post(url, headers=headers)
+                    await client.post(url, headers=headers)
                 except Exception:
                     pass
                 await asyncio.sleep(8)

@@ -144,7 +144,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         Returns:
             List of messages including system prompt.
         """
-        messages = []
+        messages: list[dict[str, Any]] = []
 
         # System prompt
         system_prompt = self.build_system_prompt(skill_names)

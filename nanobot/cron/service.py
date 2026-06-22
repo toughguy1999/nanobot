@@ -217,6 +217,7 @@ class CronService:
         """Execute a single job."""
         start_ms = _now_ms()
         logger.info(f"Cron: executing job '{job.name}' ({job.id})")
+        store = self._store
 
         try:
             if self.on_job:
@@ -237,7 +238,9 @@ class CronService:
         # Handle one-shot jobs
         if job.schedule.kind == "at":
             if job.delete_after_run:
-                self._store.jobs = [j for j in self._store.jobs if j.id != job.id]
+                if store is None:
+                    return
+                store.jobs = [j for j in store.jobs if j.id != job.id]
             else:
                 job.enabled = False
                 job.state.next_run_at_ms = None

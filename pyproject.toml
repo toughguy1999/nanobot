@@ -92,3 +92,26 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = [
+    "readability",
+    "botpy",
+    "botpy.*",
+    "lark_oapi",
+    "lark_oapi.*",
+    "socketio",
+    "socketio.*",
+    "msgpack",
+    "dingtalk_stream",
+    "dingtalk_stream.*",
+]
+ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "types-croniter>=6.2.2.20260518",
+]

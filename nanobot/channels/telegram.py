@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+from typing import Literal
 
 from loguru import logger
-from telegram import BotCommand, Update
+from telegram import Audio, BotCommand, Document, PhotoSize, Update, Voice
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -156,7 +157,12 @@ class TelegramChannel(BaseChannel):
             logger.warning(f"Failed to register bot commands: {e}")
 
         # Start polling (this runs until stopped)
-        await self._app.updater.start_polling(
+        updater = self._app.updater
+        if updater is None:
+            logger.error("Telegram updater is not available")
+            return
+
+        await updater.start_polling(
             allowed_updates=["message"],
             drop_pending_updates=True  # Ignore old messages on startup
         )
@@ -175,7 +181,9 @@ class TelegramChannel(BaseChannel):
 
         if self._app:
             logger.info("Stopping Telegram bot...")
-            await self._app.updater.stop()
+            updater = self._app.updater
+            if updater is not None:
+                await updater.stop()
             await self._app.stop()
             await self._app.shutdown()
             self._app = None
@@ -231,7 +239,7 @@ class TelegramChannel(BaseChannel):
         await self._handle_message(
             sender_id=str(update.effective_user.id),
             chat_id=str(update.message.chat_id),
-            content=update.message.text,
+            content=update.message.text or "",
         )
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -262,8 +270,8 @@ class TelegramChannel(BaseChannel):
             content_parts.append(message.caption)
 
         # Handle media files
-        media_file = None
-        media_type = None
+        media_file: PhotoSize | Voice | Audio | Document | None = None
+        media_type: Literal["image", "voice", "audio", "file"] | None = None
 
         if message.photo:
             media_file = message.photo[-1]  # Largest photo
@@ -279,10 +287,10 @@ class TelegramChannel(BaseChannel):
             media_type = "file"
 
         # Download media if present
-        if media_file and self._app:
+        if media_file and media_type and self._app:
             try:
                 file = await self._app.bot.get_file(media_file.file_id)
-                ext = self._get_extension(media_type, getattr(media_file, 'mime_type', None))
+                ext = self._get_extension(media_type, getattr(media_file, "mime_type", None))
 
                 # Save to workspace/media/
                 media_dir = PROJECT_ROOT / ".nanobot" / "media"
