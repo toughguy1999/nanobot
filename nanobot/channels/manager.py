@@ -15,7 +15,7 @@ from nanobot.config.schema import Config
 class ChannelManager:
     """
     Manages chat channels and coordinates message routing.
-    
+
     Responsibilities:
     - Initialize enabled channels (Telegram, WhatsApp, etc.)
     - Start/stop channels

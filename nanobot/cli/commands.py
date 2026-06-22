@@ -17,8 +17,7 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 
-from nanobot import __logo__ as _UNICODE_LOGO
-from nanobot import __version__
+import nanobot
 from nanobot.utils.helpers import PROJECT_ROOT, get_workspace_path
 
 
@@ -27,7 +26,7 @@ def _supports_unicode_output() -> bool:
     return "utf" in encoding
 
 
-__logo__ = _UNICODE_LOGO if _supports_unicode_output() else "nanobot"
+__logo__ = nanobot.__logo__ if _supports_unicode_output() else "nanobot"
 _APP_LABEL = "nanobot" if __logo__ == "nanobot" else f"{__logo__} nanobot"
 
 app = typer.Typer(
@@ -143,7 +142,7 @@ async def _read_interactive_input_async() -> str:
 
 def version_callback(value: bool):
     if value:
-        console.print(f"{_APP_LABEL} v{__version__}")
+        console.print(f"{_APP_LABEL} v{nanobot.__version__}")
         raise typer.Exit()
 
 

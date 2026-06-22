@@ -83,7 +83,7 @@ def _markdown_to_telegram_html(text: str) -> str:
 class TelegramChannel(BaseChannel):
     """
     Telegram channel using long polling.
-    
+
     Simple and reliable - no webhook/public IP needed.
     """
 

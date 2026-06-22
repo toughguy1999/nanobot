@@ -3,6 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -21,11 +22,15 @@ from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import SessionManager
 
+if TYPE_CHECKING:
+    from nanobot.config.schema import ExecToolConfig
+    from nanobot.cron.service import CronService
+
 
 class AgentLoop:
     """
     The agent loop is the core processing engine.
-    
+
     It:
     1. Receives messages from the bus
     2. Builds context with history, memory, skills
@@ -145,11 +150,11 @@ class AgentLoop:
     async def _process_message(self, msg: InboundMessage, session_key: str | None = None) -> OutboundMessage | None:
         """
         Process a single inbound message.
-        
+
         Args:
             msg: The inbound message to process.
             session_key: Override session key (used by process_direct).
-        
+
         Returns:
             The response message, or None if no response needed.
         """
@@ -279,7 +284,7 @@ class AgentLoop:
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
         """
         Process a system message (e.g., subagent announce).
-        
+
         The chat_id field contains "original_channel:original_chat_id" to route
         the response back to the correct destination.
         """
@@ -450,13 +455,13 @@ Respond with ONLY valid JSON, no markdown fences."""
     ) -> str:
         """
         Process a message directly (for CLI or cron usage).
-        
+
         Args:
             content: The message content.
             session_key: Session identifier (overrides channel:chat_id for session lookup).
             channel: Source channel (for tool context routing).
             chat_id: Source chat ID (for tool context routing).
-        
+
         Returns:
             The agent's response.
         """

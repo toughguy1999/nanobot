@@ -14,7 +14,7 @@ from nanobot.config.schema import WhatsAppConfig
 class WhatsAppChannel(BaseChannel):
     """
     WhatsApp channel that connects to a Node.js bridge.
-    
+
     The bridge uses @whiskeysockets/baileys to handle the WhatsApp Web protocol.
     Communication between Python and Node.js is via WebSocket.
     """

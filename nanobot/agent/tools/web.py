@@ -108,7 +108,7 @@ class WebFetchTool(Tool):
     def __init__(self, max_chars: int = 50000):
         self.max_chars = max_chars
 
-    async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
+    async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:  # noqa: N803
         from readability import Document
 
         max_chars = maxChars or self.max_chars

@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import threading
+import time
 from collections import OrderedDict
 from typing import Any
 
@@ -42,9 +43,9 @@ MSG_TYPE_MAP = {
 class FeishuChannel(BaseChannel):
     """
     Feishu/Lark channel using WebSocket long connection.
-    
+
     Uses WebSocket to receive events - no public IP or webhook required.
-    
+
     Requires:
     - App ID and App Secret from Feishu Open Platform
     - Bot capability enabled
@@ -106,7 +107,7 @@ class FeishuChannel(BaseChannel):
                 except Exception as e:
                     logger.warning(f"Feishu WebSocket error: {e}")
                 if self._running:
-                    import time; time.sleep(5)
+                    time.sleep(5)
 
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
@@ -151,7 +152,7 @@ class FeishuChannel(BaseChannel):
     async def _add_reaction(self, message_id: str, emoji_type: str = "THUMBSUP") -> None:
         """
         Add a reaction emoji to a message (non-blocking).
-        
+
         Common emoji types: THUMBSUP, OK, EYES, DONE, OnIt, HEART
         """
         if not self._client or not Emoji:
@@ -169,12 +170,15 @@ class FeishuChannel(BaseChannel):
     @staticmethod
     def _parse_md_table(table_text: str) -> dict | None:
         """Parse a markdown table into a Feishu table element."""
-        lines = [l.strip() for l in table_text.strip().split("\n") if l.strip()]
+        lines = [line.strip() for line in table_text.strip().split("\n") if line.strip()]
         if len(lines) < 3:
             return None
-        split = lambda l: [c.strip() for c in l.strip("|").split("|")]
+
+        def split(line: str) -> list[str]:
+            return [cell.strip() for cell in line.strip("|").split("|")]
+
         headers = split(lines[0])
-        rows = [split(l) for l in lines[2:]]
+        rows = [split(line) for line in lines[2:]]
         columns = [{"tag": "column", "name": f"c{i}", "display_name": h, "width": "auto"}
                    for i, h in enumerate(headers)]
         return {
