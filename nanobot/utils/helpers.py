@@ -1,9 +1,8 @@
 """Utility functions for nanobot."""
 
 import os
-from pathlib import Path
 from datetime import datetime
-
+from pathlib import Path
 
 from dotenv import load_dotenv
 

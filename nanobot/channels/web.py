@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.websockets import WebSocketState
 from loguru import logger
+from starlette.websockets import WebSocketState
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
