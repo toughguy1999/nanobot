@@ -103,6 +103,33 @@ class WebChannel(BaseChannel):
                 ],
             }
 
+        @self.app.post("/sessions/{session_id}/pin")
+        async def pin_session(session_id: str):
+            session = self._sessions.update_metadata(
+                self._session_key(session_id),
+                {"pinned": True},
+            )
+            if session is None:
+                raise HTTPException(status_code=404, detail="session not found")
+            return {"session": self._serialize_session(session)}
+
+        @self.app.post("/sessions/{session_id}/unpin")
+        async def unpin_session(session_id: str):
+            session = self._sessions.update_metadata(
+                self._session_key(session_id),
+                {"pinned": False},
+            )
+            if session is None:
+                raise HTTPException(status_code=404, detail="session not found")
+            return {"session": self._serialize_session(session)}
+
+        @self.app.post("/sessions/{session_id}/delete")
+        async def delete_session(session_id: str):
+            deleted = self._sessions.delete(self._session_key(session_id))
+            if not deleted:
+                raise HTTPException(status_code=404, detail="session not found")
+            return {"ok": True}
+
         @self.app.websocket("/ws")
         async def ws_endpoint(websocket: WebSocket):
             await self._handle_ws(websocket)
@@ -129,16 +156,19 @@ class WebChannel(BaseChannel):
             "sessionTitle": metadata.get("sessionTitle"),
             "createdAt": item.get("created_at"),
             "updatedAt": item.get("updated_at"),
+            "pinned": bool(metadata.get("pinned", False)),
         }
 
     def _serialize_session(self, session: Session) -> dict:
         session_id = session.key.removeprefix(f"{self.name}:")
+        metadata = session.metadata or {}
         return {
             "id": session_id,
             "key": session.key,
-            "sessionTitle": session.metadata.get("sessionTitle"),
+            "sessionTitle": metadata.get("sessionTitle"),
             "createdAt": session.created_at.isoformat(),
             "updatedAt": session.updated_at.isoformat(),
+            "pinned": bool(metadata.get("pinned", False)),
         }
 
     def _serialize_message(self, session: Session, message: dict, index: int) -> dict:

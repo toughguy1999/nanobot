@@ -15,6 +15,7 @@ export function createSession(): Session {
     id: createId("session"),
     createdAt: now,
     updatedAt: now,
+    pinned: false,
     messages: []
   };
 }
@@ -45,6 +46,16 @@ export function appendMessageToSession(
       updatedAt: message.createdAt,
       messages: [...session.messages, message]
     };
+  });
+}
+
+export function sortSessions(sessions: Session[]) {
+  return [...sessions].sort((a, b) => {
+    if (Boolean(a.pinned) !== Boolean(b.pinned)) {
+      return Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+    }
+
+    return b.updatedAt.localeCompare(a.updatedAt);
   });
 }
 

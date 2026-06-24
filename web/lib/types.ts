@@ -14,6 +14,7 @@ export type SessionSummary = {
   sessionTitle?: string | null;
   createdAt: string;
   updatedAt: string;
+  pinned?: boolean;
 };
 
 export type Session = SessionSummary & {

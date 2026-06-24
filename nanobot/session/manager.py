@@ -190,6 +190,17 @@ class SessionManager:
         self.save(session)
         return title
 
+    def update_metadata(self, key: str, updates: dict[str, Any]) -> Session | None:
+        """Update metadata for an existing session."""
+        session = self.get(key, refresh=True)
+        if session is None:
+            return None
+
+        session.metadata.update(updates)
+        session.updated_at = datetime.now()
+        self.save(session)
+        return session
+
     def delete(self, key: str) -> bool:
         """
         Delete a session.
@@ -259,4 +270,11 @@ class SessionManager:
             except Exception:
                 continue
 
-        return sorted(sessions, key=lambda x: x.get("updated_at", ""), reverse=True)
+        return sorted(
+            sessions,
+            key=lambda item: (
+                bool((item.get("metadata") or {}).get("pinned")),
+                item.get("updated_at", ""),
+            ),
+            reverse=True,
+        )
