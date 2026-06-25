@@ -1,12 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { MessageSquare, MoreHorizontal, Pin, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  MessageSquare,
+  MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pin,
+  Plus
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { useSidebarPreference } from "../hooks/useSidebarPreference";
 import type { Session } from "../model/chat.types";
 import { getSessionTitle } from "../model/session";
+
+const sidebarItemClass =
+  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted";
 
 type SidebarProps = {
   sessions: Session[];
@@ -28,8 +39,16 @@ export function Sidebar({
   onUnpinSession
 }: SidebarProps) {
   const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
+  const [showExpandIcon, setShowExpandIcon] = useState(false);
+  const { isCollapsed, isInitialized, collapse, expand } = useSidebarPreference();
   const pinnedSessions = sessions.filter((session) => session.pinned);
   const regularSessions = sessions.filter((session) => !session.pinned);
+
+  useEffect(() => {
+    if (isCollapsed) {
+      setOpenMenuSessionId(null);
+    }
+  }, [isCollapsed]);
 
   function renderSessionItem(session: Session) {
     const isActive = session.id === activeSessionId;
@@ -45,7 +64,7 @@ export function Sidebar({
       >
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left text-sm"
+          className={cn(sidebarItemClass, "min-w-0 flex-1 pr-0")}
           onClick={() => onSelectSession(session.id)}
         >
           <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -112,20 +131,67 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-r bg-white">
-      <div className="border-b px-4 py-4">
-        <Button className="w-full justify-start" onClick={onCreateSession}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          新建会话
-        </Button>
-      </div>
-
-      <ScrollArea className="flex-1 px-3 py-3">
-        <div className="space-y-3">
-          {renderSessionGroup("置顶", pinnedSessions)}
-          {renderSessionGroup("会话", regularSessions)}
+    <aside
+      className={cn(
+        "flex h-full shrink-0 flex-col overflow-hidden border-r bg-white",
+        isCollapsed ? "w-14" : "w-72",
+        isInitialized && "transition-[width] duration-200 ease-in-out"
+      )}
+    >
+      {isCollapsed ? (
+        <div className="flex justify-center px-2 py-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="展开侧边栏"
+            onClick={expand}
+            onMouseEnter={() => setShowExpandIcon(true)}
+            onMouseLeave={() => setShowExpandIcon(false)}
+            onFocus={() => setShowExpandIcon(true)}
+            onBlur={() => setShowExpandIcon(false)}
+          >
+            <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+              {showExpandIcon ? (
+                <PanelLeftOpen className="h-4 w-4" data-testid="sidebar-expand-icon" />
+              ) : (
+                <span>🐈</span>
+              )}
+            </span>
+          </Button>
         </div>
-      </ScrollArea>
+      ) : (
+        <>
+          <div className="flex items-center justify-between px-4 pb-2 pt-3">
+            <div className="flex items-center gap-2 font-semibold">
+              <span aria-hidden="true">🐈</span>
+              <span>Nanobot</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label="收起侧边栏"
+              onClick={collapse}
+            >
+              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+
+          <div className="px-3 pb-1">
+            <button type="button" className={sidebarItemClass} onClick={onCreateSession}>
+              <Plus className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>新建会话</span>
+            </button>
+          </div>
+
+          <ScrollArea className="flex-1 px-3 py-3">
+            <div className="space-y-3">
+              {renderSessionGroup("置顶", pinnedSessions)}
+              {renderSessionGroup("会话", regularSessions)}
+            </div>
+          </ScrollArea>
+        </>
+      )}
     </aside>
   );
 }
