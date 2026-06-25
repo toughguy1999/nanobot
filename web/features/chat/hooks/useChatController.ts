@@ -1,0 +1,277 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AssistantMessageEvent, Session } from "../model/chat.types";
+import { createMessage } from "../model/message";
+import {
+  appendMessageToSession,
+  createSession,
+  mergeSessionSummary,
+  removeSessionAndSelectNext,
+  sortSessions
+} from "../model/session";
+import {
+  checkServerStatus,
+  createRemoteSession,
+  deleteRemoteSession,
+  fetchSessionMessages,
+  fetchSessions,
+  HttpError,
+  pinSession,
+  unpinSession
+} from "../services/chatApi";
+import { useChatWebSocket } from "./useChatWebSocket";
+
+export function useChatController() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const [webSocketEnabled, setWebSocketEnabled] = useState(false);
+  const [initializationFailed, setInitializationFailed] = useState(false);
+  const sessionsRef = useRef(sessions);
+  const activeSessionIdRef = useRef(activeSessionId);
+
+  sessionsRef.current = sessions;
+  activeSessionIdRef.current = activeSessionId;
+
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId) ?? null,
+    [activeSessionId, sessions]
+  );
+
+  const handleAssistantMessage = useCallback((message: AssistantMessageEvent) => {
+    setSessions((currentSessions) =>
+      sortSessions(
+        appendMessageToSession(
+          currentSessions,
+          message.sessionId,
+          createMessage("assistant", message.content)
+        )
+      )
+    );
+  }, []);
+
+  const handleWebSocketError = useCallback((message: string) => {
+    setErrorMessage(message || null);
+  }, []);
+
+  const { connectionStatus, send } = useChatWebSocket({
+    enabled: webSocketEnabled,
+    onMessage: handleAssistantMessage,
+    onError: handleWebSocketError
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function initialize() {
+      try {
+        await checkServerStatus();
+        const serverSessions = sortSessions(await fetchSessions());
+        const firstSession =
+          serverSessions.length > 0
+            ? await fetchSessionMessages(serverSessions[0].id)
+            : createSession();
+
+        if (cancelled) {
+          return;
+        }
+
+        setSessions(sortSessions([firstSession, ...serverSessions.slice(1)]));
+        setActiveSessionId(firstSession.id);
+        setInitializationFailed(false);
+        setWebSocketEnabled(true);
+      } catch (error) {
+        if (!cancelled) {
+          setInitializationFailed(true);
+          setErrorMessage(error instanceof Error ? error.message : "服务端不可用");
+        }
+      }
+    }
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadSessionMessagesIfNeeded = useCallback(
+    async (sessionId: string, sourceSessions = sessionsRef.current) => {
+      const targetSession = sourceSessions.find((session) => session.id === sessionId);
+      if (!targetSession || !targetSession.key || targetSession.messages.length > 0) {
+        return;
+      }
+
+      try {
+        const loadedSession = await fetchSessionMessages(sessionId);
+        setSessions((currentSessions) =>
+          sortSessions(
+            currentSessions.map((session) =>
+              session.id === loadedSession.id ? loadedSession : session
+            )
+          )
+        );
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "获取历史消息失败");
+      }
+    },
+    []
+  );
+
+  const removeLocalSession = useCallback((sessionId: string) => {
+    const result = removeSessionAndSelectNext(
+      sessionsRef.current,
+      sessionId,
+      activeSessionIdRef.current
+    );
+    setSessions(result.sessions);
+    setActiveSessionId(result.activeSessionId);
+    return result;
+  }, []);
+
+  const handleMissingSession = useCallback(
+    (sessionId: string) => {
+      const result = removeLocalSession(sessionId);
+      setErrorMessage("会话不存在或已被删除");
+
+      if (result.activeSessionId) {
+        void loadSessionMessagesIfNeeded(result.activeSessionId, result.sessions);
+      }
+    },
+    [loadSessionMessagesIfNeeded, removeLocalSession]
+  );
+
+  function createNewSession() {
+    const session = createSession();
+    setSessions((currentSessions) => sortSessions([session, ...currentSessions]));
+    setActiveSessionId(session.id);
+    setErrorMessage(null);
+  }
+
+  async function selectSession(sessionId: string) {
+    setActiveSessionId(sessionId);
+    setErrorMessage(null);
+
+    try {
+      const selectedSession = sessionsRef.current.find((session) => session.id === sessionId);
+      if (selectedSession && !selectedSession.key) {
+        return;
+      }
+
+      const session = await fetchSessionMessages(sessionId);
+      setSessions((currentSessions) =>
+        sortSessions(
+          currentSessions.map((currentSession) =>
+            currentSession.id === session.id ? session : currentSession
+          )
+        )
+      );
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) {
+        handleMissingSession(sessionId);
+        return;
+      }
+
+      setErrorMessage(error instanceof Error ? error.message : "获取历史消息失败");
+    }
+  }
+
+  async function sendMessage() {
+    const content = inputValue.trim();
+    const sendingSessionId = activeSessionId;
+    const sendingSession = activeSession;
+
+    if (!content || !sendingSessionId || !sendingSession || connectionStatus !== "connected") {
+      return;
+    }
+
+    if (!sendingSession.key) {
+      try {
+        const remoteSession = await createRemoteSession(sendingSessionId);
+        setSessions((currentSessions) =>
+          mergeSessionSummary(currentSessions, remoteSession)
+        );
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "创建会话失败");
+        return;
+      }
+    }
+
+    setSessions((currentSessions) =>
+      sortSessions(
+        appendMessageToSession(
+          currentSessions,
+          sendingSessionId,
+          createMessage("user", content)
+        )
+      )
+    );
+    setInputValue("");
+    setErrorMessage(null);
+
+    if (!send(sendingSessionId, content)) {
+      setErrorMessage("消息发送失败，请检查 WebSocket 连接");
+    }
+  }
+
+  async function updatePinnedState(sessionId: string, pinned: boolean) {
+    try {
+      const updatedSession = pinned
+        ? await pinSession(sessionId)
+        : await unpinSession(sessionId);
+      setSessions((currentSessions) => mergeSessionSummary(currentSessions, updatedSession));
+      setErrorMessage(null);
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) {
+        handleMissingSession(sessionId);
+        return;
+      }
+
+      setErrorMessage(
+        error instanceof Error ? error.message : pinned ? "置顶会话失败" : "取消置顶会话失败"
+      );
+    }
+  }
+
+  async function deleteSession(sessionId: string) {
+    try {
+      await deleteRemoteSession(sessionId);
+      const result = removeLocalSession(sessionId);
+      setErrorMessage(null);
+
+      if (result.activeSessionId) {
+        await loadSessionMessagesIfNeeded(result.activeSessionId, result.sessions);
+      }
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 404) {
+        handleMissingSession(sessionId);
+        return;
+      }
+
+      setErrorMessage(error instanceof Error ? error.message : "删除会话失败");
+    }
+  }
+
+  return {
+    sessions,
+    activeSession,
+    activeSessionId,
+    connectionStatus: initializationFailed ? "disconnected" : connectionStatus,
+    errorMessage,
+    inputValue,
+    inputDisabled:
+      !activeSession || initializationFailed || connectionStatus !== "connected",
+    actions: {
+      createSession: createNewSession,
+      selectSession,
+      sendMessage,
+      pinSession: (sessionId: string) => updatePinnedState(sessionId, true),
+      unpinSession: (sessionId: string) => updatePinnedState(sessionId, false),
+      deleteSession,
+      setInputValue,
+      dismissError: () => setErrorMessage(null)
+    }
+  };
+}

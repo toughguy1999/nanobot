@@ -1,4 +1,4 @@
-import type { ServerMessage } from "@/lib/types";
+import type { ServerMessage } from "../model/chat.types";
 
 export const DEFAULT_WS_URL = "ws://localhost:8765/ws";
 

@@ -23,11 +23,9 @@ export type Session = SessionSummary & {
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
-export type ServerMessage =
-  | {
-      sessionId: string;
-      content: string;
-    }
-  | {
-      error: string;
-    };
+export type AssistantMessageEvent = {
+  sessionId: string;
+  content: string;
+};
+
+export type ServerMessage = AssistantMessageEvent | { error: string };

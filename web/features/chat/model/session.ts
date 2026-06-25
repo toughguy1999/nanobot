@@ -1,12 +1,5 @@
-import type { ChatMessage, ChatRole, Session } from "@/lib/types";
-
-export function createId(prefix: string) {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
+import type { ChatMessage, Session } from "./chat.types";
+import { createId } from "./message";
 
 export function createSession(): Session {
   const now = new Date().toISOString();
@@ -17,15 +10,6 @@ export function createSession(): Session {
     updatedAt: now,
     pinned: false,
     messages: []
-  };
-}
-
-export function createMessage(role: ChatRole, content: string): ChatMessage {
-  return {
-    id: createId("message"),
-    role,
-    content,
-    createdAt: new Date().toISOString()
   };
 }
 
@@ -75,4 +59,47 @@ export function getSessionTitle(session: Session) {
   return firstUserMessage.content.length > 28
     ? `${firstUserMessage.content.slice(0, 28)}...`
     : firstUserMessage.content;
+}
+
+export function mergeSessionSummary(currentSessions: Session[], updatedSession: Session) {
+  return sortSessions(
+    currentSessions.map((session) =>
+      session.id === updatedSession.id
+        ? {
+            ...updatedSession,
+            messages: session.messages
+          }
+        : session
+    )
+  );
+}
+
+export function removeSessionAndSelectNext(
+  currentSessions: Session[],
+  removedSessionId: string,
+  currentActiveSessionId: string | null
+) {
+  const remainingSessions = sortSessions(
+    currentSessions.filter((session) => session.id !== removedSessionId)
+  );
+
+  if (currentActiveSessionId !== removedSessionId) {
+    return {
+      sessions: remainingSessions,
+      activeSessionId: currentActiveSessionId
+    };
+  }
+
+  if (remainingSessions.length > 0) {
+    return {
+      sessions: remainingSessions,
+      activeSessionId: remainingSessions[0].id
+    };
+  }
+
+  const emptySession = createSession();
+  return {
+    sessions: [emptySession],
+    activeSessionId: emptySession.id
+  };
 }

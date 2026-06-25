@@ -5,8 +5,8 @@ import { MessageSquare, MoreHorizontal, Pin, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { getSessionTitle } from "@/lib/session";
-import type { Session } from "@/lib/types";
+import type { Session } from "../model/chat.types";
+import { getSessionTitle } from "../model/session";
 
 type SidebarProps = {
   sessions: Session[];
@@ -28,7 +28,6 @@ export function Sidebar({
   onUnpinSession
 }: SidebarProps) {
   const [openMenuSessionId, setOpenMenuSessionId] = useState<string | null>(null);
-
   const pinnedSessions = sessions.filter((session) => session.pinned);
   const regularSessions = sessions.filter((session) => !session.pinned);
 

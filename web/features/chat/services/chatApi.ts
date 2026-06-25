@@ -1,4 +1,4 @@
-import type { ChatMessage, Session, SessionSummary } from "@/lib/types";
+import type { ChatMessage, Session, SessionSummary } from "../model/chat.types";
 
 export const DEFAULT_HTTP_URL = "http://localhost:8765";
 
