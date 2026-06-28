@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AssistantMessageEvent, Session } from "../model/chat.types";
+import {
+  createUploadingAttachment,
+  DEFAULT_ATTACHMENT_PROMPT,
+  toReadyDraftAttachment,
+  validateFilesForAttachmentDraft
+} from "../model/attachments";
 import { createMessage } from "../model/message";
 import {
   appendMessageToSession,
@@ -18,15 +24,16 @@ import {
   fetchSessions,
   HttpError,
   pinSession,
+  uploadAttachment,
   unpinSession
 } from "../services/chatApi";
+import { useAttachmentDrafts } from "./useAttachmentDrafts";
 import { useChatWebSocket } from "./useChatWebSocket";
 
 export function useChatController() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState("");
   const [webSocketEnabled, setWebSocketEnabled] = useState(false);
   const [initializationFailed, setInitializationFailed] = useState(false);
   const sessionsRef = useRef(sessions);
@@ -39,6 +46,30 @@ export function useChatController() {
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions]
   );
+
+  const {
+    inputValue,
+    draftAttachments,
+    recoveryError,
+    setInputValue,
+    setDraftAttachments,
+    clearDraft
+  } = useAttachmentDrafts(activeSessionId);
+
+  const readyAttachments = useMemo(
+    () => draftAttachments.filter((attachment) => attachment.status === "ready"),
+    [draftAttachments]
+  );
+  const isUploadingAttachments = useMemo(
+    () => draftAttachments.some((attachment) => attachment.status === "uploading"),
+    [draftAttachments]
+  );
+
+  useEffect(() => {
+    if (recoveryError) {
+      setErrorMessage(recoveryError);
+    }
+  }, [recoveryError]);
 
   const handleAssistantMessage = useCallback((message: AssistantMessageEvent) => {
     setSessions((currentSessions) =>
@@ -182,8 +213,15 @@ export function useChatController() {
     const content = inputValue.trim();
     const sendingSessionId = activeSessionId;
     const sendingSession = activeSession;
+    const attachmentsToSend = readyAttachments;
 
-    if (!content || !sendingSessionId || !sendingSession || connectionStatus !== "connected") {
+    if (
+      (!content && attachmentsToSend.length === 0) ||
+      isUploadingAttachments ||
+      !sendingSessionId ||
+      !sendingSession ||
+      connectionStatus !== "connected"
+    ) {
       return;
     }
 
@@ -204,16 +242,74 @@ export function useChatController() {
         appendMessageToSession(
           currentSessions,
           sendingSessionId,
-          createMessage("user", content)
+          createMessage("user", content || DEFAULT_ATTACHMENT_PROMPT, {
+            attachments: attachmentsToSend
+          })
         )
       )
     );
-    setInputValue("");
     setErrorMessage(null);
 
-    if (!send(sendingSessionId, content)) {
+    if (!send(sendingSessionId, content, attachmentsToSend)) {
+      setSessions((currentSessions) =>
+        currentSessions.map((session) =>
+          session.id === sendingSessionId
+            ? {
+                ...session,
+                messages: session.messages.slice(0, -1)
+              }
+            : session
+        )
+      );
       setErrorMessage("消息发送失败，请检查 WebSocket 连接");
+      return;
     }
+
+    clearDraft(sendingSessionId);
+  }
+
+  function removeAttachment(fileId: string) {
+    setDraftAttachments((currentAttachments) =>
+      currentAttachments.filter((attachment) => attachment.fileId !== fileId)
+    );
+  }
+
+  function addFiles(files: File[]) {
+    const sessionId = activeSessionId;
+    if (!sessionId) {
+      return;
+    }
+
+    const validationError = validateFilesForAttachmentDraft(files, draftAttachments);
+    if (validationError) {
+      setErrorMessage(validationError);
+      return;
+    }
+
+    const uploadingAttachments = files.map(createUploadingAttachment);
+    setDraftAttachments((currentAttachments) => [...currentAttachments, ...uploadingAttachments]);
+    setErrorMessage(null);
+
+    uploadingAttachments.forEach((uploadingAttachment, index) => {
+      void uploadAttachment(sessionId, files[index])
+        .then((attachment) => {
+          setDraftAttachments((currentAttachments) =>
+            currentAttachments.map((currentAttachment) =>
+              currentAttachment.fileId === uploadingAttachment.fileId
+                ? toReadyDraftAttachment(attachment)
+                : currentAttachment
+            )
+          );
+        })
+        .catch((error) => {
+          setDraftAttachments((currentAttachments) =>
+            currentAttachments.filter(
+              (currentAttachment) => currentAttachment.fileId !== uploadingAttachment.fileId
+            )
+          );
+          setErrorMessage(error instanceof Error ? error.message : "上传附件失败");
+        });
+    });
   }
 
   async function updatePinnedState(sessionId: string, pinned: boolean) {
@@ -238,6 +334,7 @@ export function useChatController() {
   async function deleteSession(sessionId: string) {
     try {
       await deleteRemoteSession(sessionId);
+      clearDraft(sessionId);
       const result = removeLocalSession(sessionId);
       setErrorMessage(null);
 
@@ -263,6 +360,8 @@ export function useChatController() {
     inputValue,
     inputDisabled:
       !activeSession || initializationFailed || connectionStatus !== "connected",
+    draftAttachments,
+    isUploadingAttachments,
     actions: {
       createSession: createNewSession,
       selectSession,
@@ -271,6 +370,8 @@ export function useChatController() {
       unpinSession: (sessionId: string) => updatePinnedState(sessionId, false),
       deleteSession,
       setInputValue,
+      addFiles,
+      removeAttachment,
       dismissError: () => setErrorMessage(null)
     }
   };

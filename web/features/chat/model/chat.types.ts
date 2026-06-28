@@ -1,11 +1,34 @@
 export type ChatRole = "user" | "assistant";
 
+export type AttachmentKind = "image" | "text";
+
+export type AttachmentStatus = "uploading" | "ready";
+
+export type ChatAttachment = {
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  extension: string;
+  size: number;
+  kind: AttachmentKind;
+  status?: AttachmentStatus;
+  uploadedAt?: string;
+};
+
+export type DraftAttachment = ChatAttachment & {
+  status: AttachmentStatus;
+};
+
+export type ChatMessageMetadata = Record<string, unknown> & {
+  attachments?: ChatAttachment[];
+};
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
   createdAt: string;
-  metadata?: Record<string, unknown>;
+  metadata?: ChatMessageMetadata;
 };
 
 export type SessionSummary = {

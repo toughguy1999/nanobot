@@ -38,9 +38,13 @@ export function ChatPage() {
         <ConversationView session={controller.activeSession} />
 
         <MessageInput
+          attachments={controller.draftAttachments}
           disabled={controller.inputDisabled}
+          isUploadingAttachments={controller.isUploadingAttachments}
           value={controller.inputValue}
+          onAddFiles={controller.actions.addFiles}
           onChange={controller.actions.setInputValue}
+          onRemoveAttachment={controller.actions.removeAttachment}
           onSend={controller.actions.sendMessage}
         />
       </section>

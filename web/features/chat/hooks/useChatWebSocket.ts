@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AssistantMessageEvent, ConnectionStatus } from "../model/chat.types";
+import type {
+  AssistantMessageEvent,
+  ChatAttachment,
+  ConnectionStatus,
+  DraftAttachment
+} from "../model/chat.types";
 import {
   getWebSocketUrl,
   parseServerMessage,
@@ -79,7 +84,11 @@ export function useChatWebSocket({ enabled, onMessage, onError }: UseChatWebSock
     };
   }, [enabled]);
 
-  function send(sessionId: string, content: string) {
+  function send(
+    sessionId: string,
+    content: string,
+    attachments: Array<ChatAttachment | DraftAttachment> = []
+  ) {
     const websocket = websocketRef.current;
 
     if (!websocket || websocket.readyState !== WebSocket.OPEN) {
@@ -88,7 +97,7 @@ export function useChatWebSocket({ enabled, onMessage, onError }: UseChatWebSock
     }
 
     try {
-      websocket.send(serializeClientMessage(sessionId, content));
+      websocket.send(serializeClientMessage(sessionId, content, attachments));
       return true;
     } catch {
       setConnectionStatus("disconnected");

@@ -2,6 +2,7 @@ import { Bot, UserRound } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { Session } from "../model/chat.types";
+import { AttachmentList } from "./AttachmentList";
 
 type ConversationViewProps = {
   session: Session | null;
@@ -18,6 +19,8 @@ export function ConversationView({ session }: ConversationViewProps) {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           {session.messages.map((message) => {
             const isUser = message.role === "user";
+            const attachments =
+              isUser && message.metadata?.attachments ? message.metadata.attachments : [];
 
             return (
               <div
@@ -31,13 +34,14 @@ export function ConversationView({ session }: ConversationViewProps) {
                 ) : null}
                 <div
                   className={cn(
-                    "max-w-[min(42rem,80%)] whitespace-pre-wrap break-words rounded-md px-4 py-3 text-sm leading-6 shadow-sm",
+                    "max-w-[min(42rem,80%)] rounded-md px-4 py-3 text-sm leading-6 shadow-sm",
                     isUser
                       ? "bg-primary text-primary-foreground"
                       : "border bg-white text-foreground"
                   )}
                 >
-                  {message.content}
+                  <AttachmentList attachments={attachments} className={attachments.length > 0 ? "mb-2" : ""} />
+                  <div className="whitespace-pre-wrap break-words">{message.content}</div>
                 </div>
                 {isUser ? (
                   <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">

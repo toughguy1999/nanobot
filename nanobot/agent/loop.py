@@ -268,8 +268,12 @@ class AgentLoop:
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info(f"Response to {msg.channel}:{msg.sender_id}: {preview}")
 
-        # Save to session (include tool names so consolidation sees what happened)
-        session.add_message("user", msg.content)
+        # Save user-facing content to history; web attachments may add model-only text.
+        display_content = msg.metadata.get("display_content") if msg.metadata else None
+        user_content = display_content if isinstance(display_content, str) else msg.content
+        attachments = msg.metadata.get("attachments") if msg.metadata else None
+        user_metadata = {"attachments": attachments} if isinstance(attachments, list) else {}
+        session.add_message("user", user_content, **user_metadata)
         session.add_message("assistant", final_content,
                             tools_used=tools_used if tools_used else None)
         self.sessions.save(session)

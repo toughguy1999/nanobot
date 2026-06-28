@@ -1,4 +1,4 @@
-import type { ChatMessage, Session, SessionSummary } from "../model/chat.types";
+import type { ChatAttachment, ChatMessage, Session, SessionSummary } from "../model/chat.types";
 
 export const DEFAULT_HTTP_URL = "http://localhost:8765";
 
@@ -13,6 +13,15 @@ type SessionResponse = {
 type SessionDetailResponse = {
   session: SessionSummary;
   messages: ChatMessage[];
+};
+
+type AttachmentResponse = {
+  attachment: ChatAttachment;
+};
+
+type ValidateAttachmentsResponse = {
+  valid: ChatAttachment[];
+  invalid: string[];
 };
 
 export class HttpError extends Error {
@@ -112,4 +121,46 @@ export async function deleteRemoteSession(sessionId: string): Promise<void> {
     method: "POST"
   });
   assertOk(response, "删除会话失败");
+}
+
+function normalizeAttachment(attachment: ChatAttachment): ChatAttachment {
+  return {
+    ...attachment,
+    status: "ready"
+  };
+}
+
+export async function uploadAttachment(sessionId: string, file: File): Promise<ChatAttachment> {
+  const formData = new FormData();
+  formData.append("sessionId", sessionId);
+  formData.append("file", file);
+
+  const response = await fetch(`${getHttpUrl()}/attachments`, {
+    method: "POST",
+    body: formData
+  });
+  assertOk(response, "上传附件失败");
+
+  const data = (await response.json()) as AttachmentResponse;
+  return normalizeAttachment(data.attachment);
+}
+
+export async function validateAttachments(
+  sessionId: string,
+  fileIds: string[]
+): Promise<{ valid: ChatAttachment[]; invalid: string[] }> {
+  const response = await fetch(`${getHttpUrl()}/attachments/validate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ sessionId, fileIds })
+  });
+  assertOk(response, "校验附件失败");
+
+  const data = (await response.json()) as ValidateAttachmentsResponse;
+  return {
+    valid: data.valid.map(normalizeAttachment),
+    invalid: data.invalid
+  };
 }

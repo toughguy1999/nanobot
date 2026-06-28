@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import BinaryIO, IO
+from typing import IO, BinaryIO
 
 import httpx
 from loguru import logger
