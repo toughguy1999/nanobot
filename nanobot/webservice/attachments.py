@@ -1,11 +1,10 @@
-"""Attachment storage for the web channel."""
+"""Attachment storage for the web client service."""
 
 from __future__ import annotations
 
 import json
 import shutil
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -14,8 +13,9 @@ from nanobot.agent.attachments import (
     SUPPORTED_ATTACHMENT_EXTENSIONS,
     classify_attachment,
 )
-from nanobot.bus.events import InboundAttachment
 from nanobot.utils.helpers import PROJECT_ROOT, ensure_dir, safe_filename
+from nanobot.webservice.errors import AttachmentError, AttachmentTooLargeError
+from nanobot.webservice.schemas import PreparedAttachments, WebPreparedAttachment
 
 MAX_ATTACHMENTS_PER_MESSAGE = 5
 MAX_SINGLE_FILE_SIZE = 10 * 1024 * 1024
@@ -24,20 +24,8 @@ TEMPORARY_TTL = timedelta(hours=24)
 DEFAULT_ATTACHMENT_PROMPT = "请查看我上传的文件。"
 
 
-class AttachmentError(ValueError):
-    """Raised when an attachment operation fails validation."""
-
-
-@dataclass(frozen=True)
-class PreparedAttachments:
-    """Attachment data prepared for a single user turn."""
-
-    attachments: list[InboundAttachment]
-    metadata: list[dict[str, Any]]
-
-
 class WebAttachmentStore:
-    """Store, validate, bind, and read web-channel attachments."""
+    """Store, validate, bind, and read web-client attachments."""
 
     def __init__(self, root: Path | None = None):
         self.root = ensure_dir(root or PROJECT_ROOT / ".nanobot" / "attachments" / "web")
@@ -59,7 +47,7 @@ class WebAttachmentStore:
         attachment_type = self._type_for_extension(extension, mime_type)
         size = len(content)
         if size > MAX_SINGLE_FILE_SIZE:
-            raise AttachmentError("file is too large")
+            raise AttachmentTooLargeError("file is too large")
 
         file_id = f"att_{uuid.uuid4().hex}"
         storage_name = f"{file_id}{extension}"
@@ -109,7 +97,7 @@ class WebAttachmentStore:
         file_ids: list[str],
         session_key: str | None = None,
     ) -> PreparedAttachments:
-        """Validate attachments and convert them to internal and public structures."""
+        """Validate attachments and convert them to service DTOs."""
         self._validate_file_id_list(file_ids)
         index = self._load_index()
         records = [index.get(file_id) for file_id in file_ids]
@@ -127,7 +115,7 @@ class WebAttachmentStore:
             raise AttachmentError("total attachment size is too large")
 
         return PreparedAttachments(
-            attachments=[self._to_inbound_attachment(record) for record in usable_records],
+            attachments=[self._to_prepared_attachment(record) for record in usable_records],
             metadata=[self.to_public_metadata(record) for record in usable_records],
         )
 
@@ -277,9 +265,9 @@ class WebAttachmentStore:
             raise AttachmentError("attachment path is invalid")
         return self._safe_child(self.root, relative_path)
 
-    def _to_inbound_attachment(self, record: dict[str, Any]) -> InboundAttachment:
+    def _to_prepared_attachment(self, record: dict[str, Any]) -> WebPreparedAttachment:
         path = self._record_path(record)
-        return InboundAttachment(
+        return WebPreparedAttachment(
             file_name=record["fileName"],
             mime_type=record.get("mimeType", ""),
             extension=record["extension"],

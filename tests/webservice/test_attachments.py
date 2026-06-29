@@ -4,11 +4,11 @@ from typing import Any
 
 import pytest
 
-from nanobot.channels.web_attachments import (
+from nanobot.webservice.attachments import (
     MAX_SINGLE_FILE_SIZE,
-    AttachmentError,
     WebAttachmentStore,
 )
+from nanobot.webservice.errors import AttachmentError
 
 
 def test_store_rejects_unsupported_extension_and_oversized_file(tmp_path: Path):
