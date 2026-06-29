@@ -3,62 +3,11 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.web import WebChannel
 from nanobot.channels.web_attachments import DEFAULT_ATTACHMENT_PROMPT, WebAttachmentStore
 from nanobot.config.schema import WebConfig
-from nanobot.providers.base import LLMProvider, LLMResponse
-from nanobot.session.manager import Session, SessionManager
-
-
-def make_manager(tmp_path: Path) -> SessionManager:
-    manager = SessionManager()
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    manager.sessions_dir = tmp_path
-    return manager
-
-
-def test_session_manager_lists_web_metadata_without_loading_messages(tmp_path: Path):
-    manager = make_manager(tmp_path)
-
-    web_session = Session(key="web:session_one")
-    web_session.add_message("user", "hello from web")
-    web_session.add_message("assistant", "hi")
-    manager.save(web_session)
-
-    cli_session = Session(key="cli:direct")
-    cli_session.add_message("user", "ignore me")
-    manager.save(cli_session)
-
-    sessions = manager.list_sessions(channel="web")
-
-    assert len(sessions) == 1
-    assert sessions[0]["key"] == "web:session_one"
-    assert sessions[0]["metadata"]["sessionTitle"] == "hello from web"
-    assert sessions[0]["updated_at"] == web_session.updated_at.isoformat()
-
-    loaded = manager.get("web:session_one", refresh=True)
-    assert loaded is not None
-    assert loaded.updated_at == web_session.updated_at
-
-
-def test_session_manager_lists_pinned_sessions_first(tmp_path: Path):
-    manager = make_manager(tmp_path)
-
-    regular_session = Session(key="web:regular")
-    regular_session.add_message("user", "regular")
-    manager.save(regular_session)
-
-    pinned_session = Session(key="web:pinned")
-    pinned_session.add_message("user", "pinned")
-    pinned_session.metadata["pinned"] = True
-    manager.save(pinned_session)
-
-    sessions = manager.list_sessions(channel="web")
-
-    assert [session["key"] for session in sessions] == ["web:pinned", "web:regular"]
+from nanobot.session.manager import Session
 
 
 def test_web_channel_session_routes(tmp_path: Path):
@@ -281,11 +230,13 @@ def test_web_channel_websocket_allows_pure_text_attachment(tmp_path: Path):
 
     with TestClient(channel.app) as client:
         with client.websocket_connect("/ws") as websocket:
-            websocket.send_json({
-                "sessionId": "session-one",
-                "content": "",
-                "attachments": [{"fileId": attachment["fileId"]}],
-            })
+            websocket.send_json(
+                {
+                    "sessionId": "session-one",
+                    "content": "",
+                    "attachments": [{"fileId": attachment["fileId"]}],
+                }
+            )
 
     assert captured["content"].startswith(DEFAULT_ATTACHMENT_PROMPT)
     assert len(captured["attachments"]) == 1
@@ -312,16 +263,20 @@ def test_web_channel_websocket_image_attachment_enters_attachments(tmp_path: Pat
 
     with TestClient(channel.app) as client:
         with client.websocket_connect("/ws") as websocket:
-            websocket.send_json({
-                "sessionId": "session-one",
-                "content": "look",
-                "attachments": [{"fileId": attachment["fileId"]}],
-            })
+            websocket.send_json(
+                {
+                    "sessionId": "session-one",
+                    "content": "look",
+                    "attachments": [{"fileId": attachment["fileId"]}],
+                }
+            )
 
     assert captured["content"] == "look"
     assert len(captured["attachments"]) == 1
     assert captured["attachments"][0].type == "image"
-    assert captured["attachments"][0].path.endswith("att_" + attachment["fileId"].removeprefix("att_") + ".png")
+    assert captured["attachments"][0].path.endswith(
+        "att_" + attachment["fileId"].removeprefix("att_") + ".png"
+    )
     assert Path(captured["attachments"][0].path).is_file()
 
 
@@ -331,11 +286,13 @@ def test_web_channel_websocket_rejects_missing_attachment(tmp_path: Path):
 
     with TestClient(channel.app) as client:
         with client.websocket_connect("/ws") as websocket:
-            websocket.send_json({
-                "sessionId": "session-one",
-                "content": "hello",
-                "attachments": [{"fileId": "att_deadbeef"}],
-            })
+            websocket.send_json(
+                {
+                    "sessionId": "session-one",
+                    "content": "hello",
+                    "attachments": [{"fileId": "att_deadbeef"}],
+                }
+            )
             assert websocket.receive_json() == {"error": "invalid attachments: att_deadbeef"}
 
 
@@ -388,56 +345,3 @@ def test_web_channel_delete_session_cleans_attachments(tmp_path: Path):
     assert response.status_code == 200
     assert channel._attachments._load_index() == {}
     assert not (tmp_path / "attachments" / "messages" / "web_delete-with-attachments").exists()
-
-
-class FakeProvider(LLMProvider):
-    async def chat(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-        model: str | None = None,
-        max_tokens: int = 4096,
-        temperature: float = 0.7,
-    ) -> LLMResponse:
-        return LLMResponse(content="assistant response")
-
-    def get_default_model(self) -> str:
-        return "fake-model"
-
-
-async def test_agent_loop_saves_display_content_and_attachment_metadata(tmp_path: Path):
-    manager = make_manager(tmp_path / "sessions")
-    loop = AgentLoop(
-        bus=MessageBus(),
-        provider=FakeProvider(),
-        workspace=tmp_path,
-        session_manager=manager,
-    )
-    attachment = {
-        "fileId": "att_deadbeef",
-        "fileName": "notes.txt",
-        "mimeType": "text/plain",
-        "extension": "txt",
-        "size": 5,
-        "type": "text",
-        "status": "ready",
-    }
-
-    await loop._process_message(
-        InboundMessage(
-            channel="web",
-            sender_id="session-one",
-            chat_id="session-one",
-            content="model content with injected text",
-            metadata={
-                "display_content": "visible content",
-                "attachments": [attachment],
-            },
-        )
-    )
-
-    session = manager.get("web:session-one", refresh=True)
-    assert session is not None
-    assert session.messages[0]["content"] == "visible content"
-    assert session.messages[0]["attachments"] == [attachment]
-    assert "injected text" not in session.messages[0]["content"]

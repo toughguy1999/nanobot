@@ -16,7 +16,11 @@ def make_attachment(path: Path, *, type: str, mime_type: str = "") -> InboundAtt
     )
 
 
-def user_content(builder: ContextBuilder, text: str, attachments: list[InboundAttachment] | None = None):
+def user_content(
+    builder: ContextBuilder,
+    text: str,
+    attachments: list[InboundAttachment] | None = None,
+):
     return builder.build_messages([], text, attachments=attachments)[-1]["content"]
 
 
