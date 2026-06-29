@@ -226,7 +226,7 @@ def test_web_channel_attachment_routes_upload_validate_and_reject_invalid(tmp_pa
     assert uploaded.status_code == 200
     attachment = uploaded.json()["attachment"]
     assert attachment["fileName"] == "notes.txt"
-    assert attachment["kind"] == "text"
+    assert attachment["type"] == "text"
 
     validated = client.post(
         "/attachments/validate",
@@ -260,7 +260,7 @@ def test_web_channel_websocket_text_message_regression(tmp_path: Path):
 
     assert captured["sender_id"] == "session-one"
     assert captured["content"] == "hello"
-    assert captured["media"] == []
+    assert captured["attachments"] == []
     assert captured["metadata"]["attachments"] == []
 
 
@@ -288,12 +288,14 @@ def test_web_channel_websocket_allows_pure_text_attachment(tmp_path: Path):
             })
 
     assert captured["content"].startswith(DEFAULT_ATTACHMENT_PROMPT)
-    assert "[Text attachment: notes.md]" in captured["content"]
+    assert len(captured["attachments"]) == 1
+    assert captured["attachments"][0].file_name == "notes.md"
+    assert captured["attachments"][0].type == "text"
     assert captured["metadata"]["display_content"] == DEFAULT_ATTACHMENT_PROMPT
     assert captured["metadata"]["attachments"][0]["fileId"] == attachment["fileId"]
 
 
-def test_web_channel_websocket_image_attachment_enters_media(tmp_path: Path):
+def test_web_channel_websocket_image_attachment_enters_attachments(tmp_path: Path):
     channel = WebChannel(WebConfig(), MessageBus())
     channel._attachments = WebAttachmentStore(tmp_path / "attachments")
     attachment = channel._attachments.save_temporary(
@@ -317,9 +319,10 @@ def test_web_channel_websocket_image_attachment_enters_media(tmp_path: Path):
             })
 
     assert captured["content"] == "look"
-    assert len(captured["media"]) == 1
-    assert captured["media"][0].endswith("att_" + attachment["fileId"].removeprefix("att_") + ".png")
-    assert Path(captured["media"][0]).is_file()
+    assert len(captured["attachments"]) == 1
+    assert captured["attachments"][0].type == "image"
+    assert captured["attachments"][0].path.endswith("att_" + attachment["fileId"].removeprefix("att_") + ".png")
+    assert Path(captured["attachments"][0].path).is_file()
 
 
 def test_web_channel_websocket_rejects_missing_attachment(tmp_path: Path):
@@ -346,7 +349,7 @@ def test_web_channel_history_serializes_attachment_metadata(tmp_path: Path):
         "mimeType": "text/plain",
         "extension": "txt",
         "size": 5,
-        "kind": "text",
+        "type": "text",
         "status": "ready",
     }
     session = Session(key="web:history")
@@ -416,7 +419,7 @@ async def test_agent_loop_saves_display_content_and_attachment_metadata(tmp_path
         "mimeType": "text/plain",
         "extension": "txt",
         "size": 5,
-        "kind": "text",
+        "type": "text",
         "status": "ready",
     }
 

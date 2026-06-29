@@ -10,16 +10,16 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from nanobot.agent.attachments import (
+    SUPPORTED_ATTACHMENT_EXTENSIONS,
+    classify_attachment,
+)
+from nanobot.bus.events import InboundAttachment
 from nanobot.utils.helpers import PROJECT_ROOT, ensure_dir, safe_filename
-
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".json", ".csv", ".tsv", ".yaml", ".yml", ".log"}
-SUPPORTED_EXTENSIONS = IMAGE_EXTENSIONS | TEXT_EXTENSIONS
 
 MAX_ATTACHMENTS_PER_MESSAGE = 5
 MAX_SINGLE_FILE_SIZE = 10 * 1024 * 1024
 MAX_TOTAL_ATTACHMENT_SIZE = 25 * 1024 * 1024
-TEXT_CONTEXT_CHAR_LIMIT = 100_000
 TEMPORARY_TTL = timedelta(hours=24)
 DEFAULT_ATTACHMENT_PROMPT = "请查看我上传的文件。"
 
@@ -32,8 +32,7 @@ class AttachmentError(ValueError):
 class PreparedAttachments:
     """Attachment data prepared for a single user turn."""
 
-    content: str
-    media: list[str]
+    attachments: list[InboundAttachment]
     metadata: list[dict[str, Any]]
 
 
@@ -57,7 +56,7 @@ class WebAttachmentStore:
         """Save an uploaded file as a temporary attachment."""
         clean_name = self._clean_filename(filename)
         extension = Path(clean_name).suffix.lower()
-        kind = self._kind_for_extension(extension)
+        attachment_type = self._type_for_extension(extension, mime_type)
         size = len(content)
         if size > MAX_SINGLE_FILE_SIZE:
             raise AttachmentError("file is too large")
@@ -74,7 +73,7 @@ class WebAttachmentStore:
             "mimeType": mime_type or "",
             "extension": extension.lstrip("."),
             "size": size,
-            "kind": kind,
+            "type": attachment_type,
             "status": "temporary",
             "path": self._relative_path(path),
             "uploadedAt": (uploaded_at or datetime.now()).isoformat(),
@@ -107,11 +106,10 @@ class WebAttachmentStore:
     def prepare_for_message(
         self,
         *,
-        content: str,
         file_ids: list[str],
         session_key: str | None = None,
     ) -> PreparedAttachments:
-        """Validate attachments and assemble model-facing content/media."""
+        """Validate attachments and convert them to internal and public structures."""
         self._validate_file_id_list(file_ids)
         index = self._load_index()
         records = [index.get(file_id) for file_id in file_ids]
@@ -128,22 +126,8 @@ class WebAttachmentStore:
         if total_size > MAX_TOTAL_ATTACHMENT_SIZE:
             raise AttachmentError("total attachment size is too large")
 
-        base_content = content.strip() or DEFAULT_ATTACHMENT_PROMPT
-        text_sections: list[str] = []
-        media: list[str] = []
-        for record in usable_records:
-            path = self._record_path(record)
-            if record["kind"] == "image":
-                media.append(str(path))
-            elif record["kind"] == "text":
-                text_sections.append(self._read_text_context(record, path))
-
-        if text_sections:
-            base_content = "\n\n".join([base_content, *text_sections])
-
         return PreparedAttachments(
-            content=base_content,
-            media=media,
+            attachments=[self._to_inbound_attachment(record) for record in usable_records],
             metadata=[self.to_public_metadata(record) for record in usable_records],
         )
 
@@ -216,23 +200,10 @@ class WebAttachmentStore:
             "mimeType": record.get("mimeType", ""),
             "extension": record["extension"],
             "size": record["size"],
-            "kind": record["kind"],
+            "type": record["type"],
             "status": "ready",
             "uploadedAt": record.get("uploadedAt"),
         }
-
-    def _read_text_context(self, record: dict[str, Any], path: Path) -> str:
-        try:
-            text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError as exc:
-            raise AttachmentError(
-                f"{record['fileName']} could not be read as UTF-8 text"
-            ) from exc
-
-        truncated = len(text) > TEXT_CONTEXT_CHAR_LIMIT
-        text = text[:TEXT_CONTEXT_CHAR_LIMIT]
-        suffix = "\n\n[Text attachment truncated at 100,000 characters.]" if truncated else ""
-        return f"[Text attachment: {record['fileName']}]\n{text}{suffix}"
 
     def _is_sendable(
         self,
@@ -268,11 +239,10 @@ class WebAttachmentStore:
             if not suffix or any(char not in "0123456789abcdef" for char in suffix):
                 raise AttachmentError("invalid fileId")
 
-    def _kind_for_extension(self, extension: str) -> str:
-        if extension in IMAGE_EXTENSIONS:
-            return "image"
-        if extension in TEXT_EXTENSIONS:
-            return "text"
+    def _type_for_extension(self, extension: str, mime_type: str | None = None) -> str:
+        attachment_type = classify_attachment(extension, mime_type)
+        if attachment_type in {"image", "text"} and extension in SUPPORTED_ATTACHMENT_EXTENSIONS:
+            return attachment_type
         raise AttachmentError("unsupported file type")
 
     def _clean_filename(self, filename: str) -> str:
@@ -281,7 +251,7 @@ class WebAttachmentStore:
         if not cleaned or cleaned in {".", ".."}:
             raise AttachmentError("invalid filename")
         extension = Path(cleaned).suffix.lower()
-        self._kind_for_extension(extension)
+        self._type_for_extension(extension)
         return cleaned
 
     def _load_index(self) -> dict[str, dict[str, Any]]:
@@ -306,6 +276,17 @@ class WebAttachmentStore:
         if not isinstance(relative_path, str):
             raise AttachmentError("attachment path is invalid")
         return self._safe_child(self.root, relative_path)
+
+    def _to_inbound_attachment(self, record: dict[str, Any]) -> InboundAttachment:
+        path = self._record_path(record)
+        return InboundAttachment(
+            file_name=record["fileName"],
+            mime_type=record.get("mimeType", ""),
+            extension=record["extension"],
+            size=int(record["size"]),
+            type=record["type"],
+            path=str(path),
+        )
 
     def _relative_path(self, path: Path) -> str:
         resolved = path.resolve()

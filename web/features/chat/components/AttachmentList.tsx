@@ -18,7 +18,7 @@ export function AttachmentList({ attachments, className, onRemove }: AttachmentL
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
       {attachments.map((attachment) => {
-        const Icon = attachment.kind === "image" ? FileImage : FileText;
+        const Icon = attachment.type === "image" ? FileImage : FileText;
         const isUploading = attachment.status === "uploading";
 
         return (

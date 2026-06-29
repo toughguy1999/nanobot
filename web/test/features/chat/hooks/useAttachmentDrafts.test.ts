@@ -16,7 +16,7 @@ const readyAttachment = {
   mimeType: "text/plain",
   extension: "txt",
   size: 5,
-  kind: "text" as const,
+  type: "text" as const,
   status: "ready" as const
 };
 

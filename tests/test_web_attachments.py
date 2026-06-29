@@ -6,7 +6,6 @@ import pytest
 
 from nanobot.channels.web_attachments import (
     MAX_SINGLE_FILE_SIZE,
-    TEXT_CONTEXT_CHAR_LIMIT,
     AttachmentError,
     WebAttachmentStore,
 )
@@ -39,7 +38,7 @@ def test_store_saves_temporary_and_returns_public_metadata(tmp_path: Path):
     assert metadata["fileId"].startswith("att_")
     assert metadata["fileName"] == "notes.md"
     assert metadata["extension"] == "md"
-    assert metadata["kind"] == "text"
+    assert metadata["type"] == "text"
     assert metadata["status"] == "ready"
     assert "path" not in metadata
     assert len(list((tmp_path / "messages" / "web_session-one").iterdir())) == 1
@@ -86,42 +85,28 @@ def test_bind_marks_attachment_bound_without_moving_file(tmp_path: Path):
     assert (tmp_path / record["path"]).exists()
 
 
-def test_prepare_reads_text_context_and_truncates(tmp_path: Path):
+def test_prepare_returns_internal_attachments_without_reading_content(tmp_path: Path):
     store = WebAttachmentStore(tmp_path)
-    text = "a" * (TEXT_CONTEXT_CHAR_LIMIT + 10)
     metadata = store.save_temporary(
         session_key="web:session-one",
         filename="long.log",
-        content=text.encode(),
+        content=b"\xff\xfe",
     )
 
     prepared = store.prepare_for_message(
-        content="read this",
         file_ids=[metadata["fileId"]],
         session_key="web:session-one",
     )
 
-    assert prepared.media == []
     assert prepared.metadata[0]["fileName"] == "long.log"
-    assert prepared.content.startswith("read this\n\n[Text attachment: long.log]")
-    assert "Text attachment truncated at 100,000 characters" in prepared.content
-    assert "a" * TEXT_CONTEXT_CHAR_LIMIT in prepared.content
-
-
-def test_prepare_reports_utf8_text_decode_errors(tmp_path: Path):
-    store = WebAttachmentStore(tmp_path)
-    metadata = store.save_temporary(
-        session_key="web:session-one",
-        filename="bad.txt",
-        content=b"\xff\xfe",
-    )
-
-    with pytest.raises(AttachmentError, match="UTF-8"):
-        store.prepare_for_message(
-            content="",
-            file_ids=[metadata["fileId"]],
-            session_key="web:session-one",
-        )
+    assert prepared.metadata[0]["type"] == "text"
+    assert len(prepared.attachments) == 1
+    assert prepared.attachments[0].file_name == "long.log"
+    assert prepared.attachments[0].type == "text"
+    assert prepared.attachments[0].path.endswith(".log")
+    assert Path(prepared.attachments[0].path).is_absolute()
+    assert Path(prepared.attachments[0].path).is_file()
+    assert "path" not in prepared.metadata[0]
 
 
 def test_cleanup_expired_temporary_removes_file_and_index(tmp_path: Path):

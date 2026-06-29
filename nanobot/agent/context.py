@@ -6,8 +6,12 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
+from nanobot.agent.attachments import TEXT_CONTEXT_CHAR_LIMIT
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
+from nanobot.bus.events import InboundAttachment
 
 
 class ContextBuilder:
@@ -126,7 +130,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         history: list[dict[str, Any]],
         current_message: str,
         skill_names: list[str] | None = None,
-        media: list[str] | None = None,
+        attachments: list[InboundAttachment] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
     ) -> list[dict[str, Any]]:
@@ -137,7 +141,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
             history: Previous conversation messages.
             current_message: The new user message.
             skill_names: Optional skills to include.
-            media: Optional list of local file paths for images/media.
+            attachments: Optional local inbound attachments.
             channel: Current channel (telegram, feishu, etc.).
             chat_id: Current chat/user ID.
 
@@ -155,29 +159,78 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         # History
         messages.extend(history)
 
-        # Current message (with optional image attachments)
-        user_content = self._build_user_content(current_message, media)
+        # Current message (with optional text/image attachments)
+        user_content = self._build_user_content(current_message, attachments)
         messages.append({"role": "user", "content": user_content})
 
         return messages
 
-    def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
-        """Build user message content with optional base64-encoded images."""
-        if not media:
+    def _build_user_content(
+        self,
+        text: str,
+        attachments: list[InboundAttachment] | None,
+    ) -> str | list[dict[str, Any]]:
+        """Build user message content with optional attachment context."""
+        if not attachments:
             return text
 
+        text_sections: list[str] = []
         images = []
-        for path in media:
-            p = Path(path)
-            mime, _ = mimetypes.guess_type(path)
-            if not p.is_file() or not mime or not mime.startswith("image/"):
-                continue
-            b64 = base64.b64encode(p.read_bytes()).decode()
-            images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+        for attachment in attachments:
+            if attachment.type == "text":
+                section = self._read_text_attachment(attachment)
+                if section:
+                    text_sections.append(section)
+            elif attachment.type == "image":
+                image = self._read_image_attachment(attachment)
+                if image:
+                    images.append(image)
+            else:
+                logger.warning(f"Skipping unsupported attachment type: {attachment.type}")
+
+        merged_text = text
+        if text_sections:
+            merged_text = "\n\n".join([text, *text_sections]) if text else "\n\n".join(text_sections)
 
         if not images:
-            return text
-        return images + [{"type": "text", "text": text}]
+            return merged_text
+        return images + [{"type": "text", "text": merged_text}]
+
+    def _read_text_attachment(self, attachment: InboundAttachment) -> str | None:
+        path = Path(attachment.path)
+        if not path.is_file():
+            logger.warning(f"Skipping text attachment with unavailable path: {path}")
+            return None
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            logger.warning(f"Failed to read text attachment {attachment.file_name}: {exc}")
+            return None
+
+        text = raw.decode("utf-8", errors="replace")
+        if "\ufffd" in text:
+            logger.warning(f"Text attachment {attachment.file_name} had invalid UTF-8 bytes")
+        truncated = len(text) > TEXT_CONTEXT_CHAR_LIMIT
+        text = text[:TEXT_CONTEXT_CHAR_LIMIT]
+        suffix = "\n\n[Text attachment truncated at 100,000 characters.]" if truncated else ""
+        mime = attachment.mime_type or "application/octet-stream"
+        return f"[Text attachment: {attachment.file_name}, {mime}]\n{text}{suffix}"
+
+    def _read_image_attachment(self, attachment: InboundAttachment) -> dict[str, Any] | None:
+        path = Path(attachment.path)
+        if not path.is_file():
+            logger.warning(f"Skipping image attachment with unavailable path: {path}")
+            return None
+        mime = attachment.mime_type or mimetypes.guess_type(str(path))[0]
+        if not mime or not mime.startswith("image/"):
+            logger.warning(f"Skipping image attachment with unsupported MIME type: {attachment.file_name}")
+            return None
+        try:
+            b64 = base64.b64encode(path.read_bytes()).decode()
+        except OSError as exc:
+            logger.warning(f"Failed to read image attachment {attachment.file_name}: {exc}")
+            return None
+        return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
 
     def add_tool_result(
         self,

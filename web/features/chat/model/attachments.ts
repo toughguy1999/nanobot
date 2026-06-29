@@ -1,4 +1,4 @@
-import type { AttachmentKind, ChatAttachment, DraftAttachment } from "./chat.types";
+import type { AttachmentType, ChatAttachment, DraftAttachment } from "./chat.types";
 
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
 export const MAX_SINGLE_ATTACHMENT_SIZE = 10 * 1024 * 1024;
@@ -27,7 +27,7 @@ export function getAttachmentExtension(fileName: string) {
   return extension === fileName.toLowerCase() ? "" : extension;
 }
 
-export function getAttachmentKind(extension: string): AttachmentKind | null {
+export function getAttachmentType(extension: string): AttachmentType | null {
   if (IMAGE_ATTACHMENT_EXTENSIONS.includes(extension)) {
     return "image";
   }
@@ -63,7 +63,7 @@ export function validateFilesForAttachmentDraft(
 
   for (const file of files) {
     const extension = getAttachmentExtension(file.name);
-    if (!getAttachmentKind(extension)) {
+    if (!getAttachmentType(extension)) {
       return "不支持该文件类型";
     }
     if (file.size > MAX_SINGLE_ATTACHMENT_SIZE) {
@@ -76,7 +76,7 @@ export function validateFilesForAttachmentDraft(
 
 export function createUploadingAttachment(file: File): DraftAttachment {
   const extension = getAttachmentExtension(file.name);
-  const kind = getAttachmentKind(extension) ?? "text";
+  const type = getAttachmentType(extension) ?? "text";
   const randomPart =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -87,7 +87,7 @@ export function createUploadingAttachment(file: File): DraftAttachment {
     mimeType: file.type,
     extension,
     size: file.size,
-    kind,
+    type,
     status: "uploading"
   };
 }

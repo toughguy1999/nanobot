@@ -19,7 +19,7 @@ describe("chatWebSocket", () => {
             mimeType: "text/plain",
             extension: "txt",
             size: 5,
-            kind: "text",
+            type: "text",
             status: "ready"
           }
         ])

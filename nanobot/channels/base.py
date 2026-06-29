@@ -5,7 +5,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.bus.events import InboundMessage, OutboundMessage
+from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 
 
@@ -88,7 +88,7 @@ class BaseChannel(ABC):
         sender_id: str,
         chat_id: str,
         content: str,
-        media: list[str] | None = None,
+        attachments: list[InboundAttachment] | None = None,
         metadata: dict[str, Any] | None = None
     ) -> None:
         """
@@ -100,7 +100,7 @@ class BaseChannel(ABC):
             sender_id: The sender's identifier.
             chat_id: The chat/channel identifier.
             content: Message text content.
-            media: Optional list of media URLs.
+            attachments: Optional local inbound attachments.
             metadata: Optional channel-specific metadata.
         """
         if not self.is_allowed(sender_id):
@@ -115,7 +115,7 @@ class BaseChannel(ABC):
             sender_id=str(sender_id),
             chat_id=str(chat_id),
             content=content,
-            media=media or [],
+            attachments=attachments or [],
             metadata=metadata or {}
         )
 

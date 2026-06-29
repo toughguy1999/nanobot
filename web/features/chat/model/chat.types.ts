@@ -1,6 +1,6 @@
 export type ChatRole = "user" | "assistant";
 
-export type AttachmentKind = "image" | "text";
+export type AttachmentType = "image" | "text";
 
 export type AttachmentStatus = "uploading" | "ready";
 
@@ -10,7 +10,7 @@ export type ChatAttachment = {
   mimeType: string;
   extension: string;
   size: number;
-  kind: AttachmentKind;
+  type: AttachmentType;
   status?: AttachmentStatus;
   uploadedAt?: string;
 };

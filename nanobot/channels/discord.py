@@ -8,7 +8,8 @@ import httpx
 import websockets
 from loguru import logger
 
-from nanobot.bus.events import OutboundMessage
+from nanobot.agent.attachments import inbound_attachment_from_path
+from nanobot.bus.events import InboundAttachment, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import DiscordConfig
@@ -197,7 +198,7 @@ class DiscordChannel(BaseChannel):
             return
 
         content_parts = [content] if content else []
-        media_paths: list[str] = []
+        attachments: list[InboundAttachment] = []
         media_dir = PROJECT_ROOT / ".nanobot" / "media"
 
         for attachment in payload.get("attachments") or []:
@@ -215,7 +216,13 @@ class DiscordChannel(BaseChannel):
                 resp = await self._http.get(url)
                 resp.raise_for_status()
                 file_path.write_bytes(resp.content)
-                media_paths.append(str(file_path))
+                inbound_attachment = inbound_attachment_from_path(
+                    file_path,
+                    file_name=filename,
+                    mime_type=attachment.get("content_type"),
+                )
+                if inbound_attachment and inbound_attachment.type == "image":
+                    attachments.append(inbound_attachment)
                 content_parts.append(f"[attachment: {file_path}]")
             except Exception as e:
                 logger.warning(f"Failed to download Discord attachment: {e}")
@@ -229,7 +236,7 @@ class DiscordChannel(BaseChannel):
             sender_id=sender_id,
             chat_id=channel_id,
             content="\n".join(p for p in content_parts if p) or "[empty message]",
-            media=media_paths,
+            attachments=attachments,
             metadata={
                 "message_id": str(payload.get("id", "")),
                 "guild_id": payload.get("guild_id"),

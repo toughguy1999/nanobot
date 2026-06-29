@@ -11,7 +11,8 @@ from telegram import Audio, BotCommand, Document, PhotoSize, Update, Voice
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
-from nanobot.bus.events import OutboundMessage
+from nanobot.agent.attachments import inbound_attachment_from_path
+from nanobot.bus.events import InboundAttachment, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
@@ -261,7 +262,7 @@ class TelegramChannel(BaseChannel):
 
         # Build content from text and/or media
         content_parts = []
-        media_paths = []
+        attachments: list[InboundAttachment] = []
 
         # Text content
         if message.text:
@@ -299,7 +300,13 @@ class TelegramChannel(BaseChannel):
                 file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
                 await file.download_to_drive(str(file_path))
 
-                media_paths.append(str(file_path))
+                inbound_attachment = inbound_attachment_from_path(
+                    file_path,
+                    file_name=file_path.name,
+                    mime_type=getattr(media_file, "mime_type", None),
+                )
+                if media_type == "image" and inbound_attachment and inbound_attachment.type == "image":
+                    attachments.append(inbound_attachment)
 
                 # Handle voice transcription
                 if media_type == "voice" or media_type == "audio":
@@ -333,7 +340,7 @@ class TelegramChannel(BaseChannel):
             sender_id=sender_id,
             chat_id=str_chat_id,
             content=content,
-            media=media_paths,
+            attachments=attachments,
             metadata={
                 "message_id": message.message_id,
                 "user_id": user.id,

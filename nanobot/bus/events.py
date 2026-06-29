@@ -5,6 +5,18 @@ from datetime import datetime
 from typing import Any
 
 
+@dataclass(frozen=True)
+class InboundAttachment:
+    """Local attachment received from a chat channel."""
+
+    file_name: str
+    mime_type: str
+    extension: str
+    size: int
+    type: str
+    path: str
+
+
 @dataclass
 class InboundMessage:
     """Message received from a chat channel."""
@@ -14,7 +26,7 @@ class InboundMessage:
     chat_id: str  # Chat/channel identifier
     content: str  # Message text
     timestamp: datetime = field(default_factory=datetime.now)
-    media: list[str] = field(default_factory=list)  # Media URLs
+    attachments: list[InboundAttachment] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)  # Channel-specific data
 
     @property

@@ -276,7 +276,6 @@ class WebChannel(BaseChannel):
                         continue
 
                     prepared_attachments = self._attachments.prepare_for_message(
-                        content=content,
                         file_ids=attachment_file_ids,
                         session_key=session_key,
                     )
@@ -296,8 +295,8 @@ class WebChannel(BaseChannel):
                 await self._handle_message(
                     sender_id=session_id,
                     chat_id=session_id,
-                    content=prepared_attachments.content,
-                    media=prepared_attachments.media,
+                    content=content.strip() or DEFAULT_ATTACHMENT_PROMPT,
+                    attachments=prepared_attachments.attachments,
                     metadata={
                         "websocket": websocket,
                         "session_key": session_key,

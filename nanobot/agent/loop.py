@@ -203,7 +203,7 @@ class AgentLoop:
         messages = self.context.build_messages(
             history=session.get_history(),
             current_message=msg.content,
-            media=msg.media if msg.media else None,
+            attachments=msg.attachments if msg.attachments else None,
             channel=msg.channel,
             chat_id=msg.chat_id,
         )
@@ -268,7 +268,7 @@ class AgentLoop:
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info(f"Response to {msg.channel}:{msg.sender_id}: {preview}")
 
-        # Save user-facing content to history; web attachments may add model-only text.
+        # Save user-facing content to history; attachment context is built by ContextBuilder.
         display_content = msg.metadata.get("display_content") if msg.metadata else None
         user_content = display_content if isinstance(display_content, str) else msg.content
         attachments = msg.metadata.get("attachments") if msg.metadata else None
