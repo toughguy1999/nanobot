@@ -1,14 +1,41 @@
 from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from nanobot.webservice.attachments import (
     MAX_SINGLE_FILE_SIZE,
+    TARGET_IMAGE_FILE_SIZE,
     WebAttachmentStore,
 )
 from nanobot.webservice.errors import AttachmentError
+
+
+def make_png_bytes(size: tuple[int, int] = (10, 10), color: tuple[int, int, int] = (255, 0, 0)) -> bytes:
+    image = Image.new("RGB", size, color)
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def make_animated_gif_bytes() -> bytes:
+    frames = [
+        Image.new("RGB", (12, 12), (255, 0, 0)),
+        Image.new("RGB", (12, 12), (0, 255, 0)),
+    ]
+    output = BytesIO()
+    frames[0].save(
+        output,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=100,
+        loop=0,
+    )
+    return output.getvalue()
 
 
 def test_store_rejects_unsupported_extension_and_oversized_file(tmp_path: Path):
@@ -49,7 +76,7 @@ def test_validate_returns_valid_metadata_and_invalid_ids(tmp_path: Path):
     metadata = store.save_temporary(
         session_key="web:session-one",
         filename="image.png",
-        content=b"png",
+        content=make_png_bytes(),
     )
 
     valid, invalid = store.validate(
@@ -59,6 +86,51 @@ def test_validate_returns_valid_metadata_and_invalid_ids(tmp_path: Path):
 
     assert [item["fileId"] for item in valid] == [metadata["fileId"]]
     assert invalid == ["att_deadbeef"]
+
+
+def test_image_upload_keeps_resampled_original_format_when_under_target(tmp_path: Path):
+    store = WebAttachmentStore(tmp_path)
+    original = make_png_bytes(size=(3000, 3000), color=(20, 120, 200))
+
+    metadata = store.save_temporary(
+        session_key="web:session-one",
+        filename="large.png",
+        content=original,
+        mime_type="image/png",
+    )
+    record = store._load_index()[metadata["fileId"]]
+    stored_path = tmp_path / record["path"]
+
+    assert metadata["fileName"] == "large.png"
+    assert metadata["extension"] == "png"
+    assert metadata["mimeType"] == "image/png"
+    assert metadata["size"] == stored_path.stat().st_size
+    assert metadata["size"] <= TARGET_IMAGE_FILE_SIZE
+    assert stored_path.suffix == ".png"
+    with Image.open(stored_path) as stored:
+        assert max(stored.size) <= 2048
+
+
+def test_animated_image_upload_preserves_original_file(tmp_path: Path):
+    store = WebAttachmentStore(tmp_path)
+    original = make_animated_gif_bytes()
+
+    metadata = store.save_temporary(
+        session_key="web:session-one",
+        filename="loop.gif",
+        content=original,
+        mime_type="image/gif",
+    )
+    record = store._load_index()[metadata["fileId"]]
+    stored_path = tmp_path / record["path"]
+
+    assert metadata["fileName"] == "loop.gif"
+    assert metadata["extension"] == "gif"
+    assert metadata["mimeType"] == "image/gif"
+    assert stored_path.read_bytes() == original
+    with Image.open(stored_path) as stored:
+        assert getattr(stored, "is_animated", False)
+        assert getattr(stored, "n_frames", 1) == 2
 
 
 def test_bind_marks_attachment_bound_without_moving_file(tmp_path: Path):
@@ -98,15 +170,15 @@ def test_prepare_returns_internal_attachments_without_reading_content(tmp_path: 
         session_key="web:session-one",
     )
 
-    assert prepared.metadata[0]["fileName"] == "long.log"
-    assert prepared.metadata[0]["type"] == "text"
     assert len(prepared.attachments) == 1
     assert prepared.attachments[0].file_name == "long.log"
     assert prepared.attachments[0].type == "text"
+    assert prepared.attachments[0].file_id == metadata["fileId"]
+    assert prepared.attachments[0].status == "ready"
+    assert prepared.attachments[0].uploaded_at == metadata["uploadedAt"]
     assert prepared.attachments[0].path.endswith(".log")
     assert Path(prepared.attachments[0].path).is_absolute()
     assert Path(prepared.attachments[0].path).is_file()
-    assert "path" not in prepared.metadata[0]
 
 
 def test_cleanup_expired_temporary_removes_file_and_index(tmp_path: Path):

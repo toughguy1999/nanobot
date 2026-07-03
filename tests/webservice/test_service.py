@@ -25,15 +25,19 @@ def test_session_crud_and_message_serialization(tmp_path: Path):
     assert created["session"]["id"] == "session-test"
 
     session = service.sessions.get_or_create("web:session-test")
+    session.metadata["sessionTitle"] = "first message"
     session.add_message("user", "first message")
-    session.add_message("assistant", "answer", tools_used=[])
+    session.add_tool_call(id="call_1", name="read_file", arguments={"path": "README.md"})
+    session.add_tool_result(tool_call_id="call_1", name="read_file", content="contents")
+    session.add_message("assistant", "answer")
     service.sessions.save(session)
 
     assert service.list_sessions()["sessions"][0]["sessionTitle"] == "first message"
 
     detail = service.get_session_messages("session-test")
+    assert len(detail["messages"]) == 2
     assert detail["messages"][0]["role"] == "user"
-    assert detail["messages"][1]["metadata"] == {"toolsUsed": []}
+    assert detail["messages"][1]["metadata"] == {"toolsUsed": ["read_file"]}
 
     assert service.pin_session("session-test")["session"]["pinned"] is True
     assert service.unpin_session("session-test")["session"]["pinned"] is False
@@ -74,7 +78,8 @@ def test_prepare_message_binds_attachments_and_excludes_websocket(tmp_path: Path
     assert prepared.session_key == "web:session-one"
     assert prepared.content == DEFAULT_ATTACHMENT_PROMPT
     assert prepared.attachments[0].file_name == "notes.md"
-    assert prepared.metadata["attachments"][0]["fileId"] == attachment["fileId"]
+    assert prepared.attachments[0].file_id == attachment["fileId"]
+    assert "attachments" not in prepared.metadata
     assert "websocket" not in prepared.metadata
 
 

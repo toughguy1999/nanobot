@@ -14,6 +14,7 @@ def test_session_manager_lists_web_metadata_without_loading_messages(tmp_path: P
     manager = make_manager(tmp_path)
 
     web_session = Session(key="web:session_one")
+    web_session.metadata["sessionTitle"] = "hello from web"
     web_session.add_message("user", "hello from web")
     web_session.add_message("assistant", "hi")
     manager.save(web_session)
@@ -38,10 +39,12 @@ def test_session_manager_lists_pinned_sessions_first(tmp_path: Path):
     manager = make_manager(tmp_path)
 
     regular_session = Session(key="web:regular")
+    regular_session.metadata["sessionTitle"] = "regular"
     regular_session.add_message("user", "regular")
     manager.save(regular_session)
 
     pinned_session = Session(key="web:pinned")
+    pinned_session.metadata["sessionTitle"] = "pinned"
     pinned_session.add_message("user", "pinned")
     pinned_session.metadata["pinned"] = True
     manager.save(pinned_session)

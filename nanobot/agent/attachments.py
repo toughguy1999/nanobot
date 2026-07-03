@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, TypedDict
 
 from loguru import logger
 
 from nanobot.bus.events import InboundAttachment
+from nanobot.session.blobs import SessionBlobStore
 
 AttachmentType = Literal["image", "text", "unknown"]
 
@@ -27,6 +28,14 @@ TEXT_EXTENSIONS = frozenset({
 SUPPORTED_ATTACHMENT_EXTENSIONS = IMAGE_EXTENSIONS | TEXT_EXTENSIONS
 
 TEXT_CONTEXT_CHAR_LIMIT = 100_000
+
+
+class StableUserMessage(TypedDict):
+    """User history content produced after stabilizing attachments."""
+
+    content: str | list[dict[str, Any]]
+    display_content: str
+    attachments: list[dict[str, Any]]
 
 
 def normalize_extension(extension: str) -> str:
@@ -77,3 +86,100 @@ def inbound_attachment_from_path(
         type=attachment_type,
         path=str(file_path.resolve()),
     )
+
+
+def stabilize_user_message(
+    *,
+    session_key: str,
+    text: str,
+    attachments: list[InboundAttachment] | None
+) -> StableUserMessage:
+    """Create LLM-ready, stable history content for a user message."""
+    if not attachments:
+        result: StableUserMessage = {
+            "content": text,
+            "display_content": text,
+            "attachments": [],
+        }
+        return result
+
+    text_sections: list[str] = []
+    image_items: list[dict[str, Any]] = []
+
+    for attachment in attachments:
+        if attachment.type == "text":
+            section = _stabilize_text_attachment(attachment)
+            if section:
+                text_sections.append(section)
+        elif attachment.type == "image":
+            store = SessionBlobStore()
+            blob = _stabilize_image_attachment(session_key, attachment, store)
+            if blob:
+                image_items.append({
+                    "type": "image_url",
+                    "image_url": {"blob": blob},
+                })
+        else:
+            logger.warning(f"Skipping unsupported attachment type: {attachment.type}")
+
+    merged_text = text
+    if text_sections:
+        merged_text = "\n\n".join([text, *text_sections]) if text else "\n\n".join(text_sections)
+
+    content: str | list[dict[str, Any]]
+    if image_items:
+        content = image_items + [{"type": "text", "text": merged_text}]
+    else:
+        content = merged_text
+
+    return {
+        "content": content,
+        "display_content": text,
+        "attachments": [],
+    }
+
+
+def _stabilize_text_attachment(attachment: InboundAttachment) -> str | None:
+    path = Path(attachment.path)
+    if not path.is_file():
+        logger.warning(f"Skipping text attachment with unavailable path: {path}")
+        return None
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        logger.warning(f"Failed to read text attachment {attachment.file_name}: {exc}")
+        return None
+
+    text = raw.decode("utf-8", errors="replace")
+    if "\ufffd" in text:
+        logger.warning(f"Text attachment {attachment.file_name} had invalid UTF-8 bytes")
+    truncated = len(text) > TEXT_CONTEXT_CHAR_LIMIT
+    text = text[:TEXT_CONTEXT_CHAR_LIMIT]
+    suffix = "\n\n[Text attachment truncated at 100,000 characters.]" if truncated else ""
+    mime = attachment.mime_type or "application/octet-stream"
+    return f"[Text attachment: {attachment.file_name}, {mime}]\n{text}{suffix}"
+
+
+def _stabilize_image_attachment(
+    session_key: str,
+    attachment: InboundAttachment,
+    store: SessionBlobStore,
+) -> dict[str, Any] | None:
+    path = Path(attachment.path)
+    if not path.is_file():
+        logger.warning(f"Skipping image attachment with unavailable path: {path}")
+        return None
+    mime = attachment.mime_type or mimetypes.guess_type(str(path))[0]
+    if not mime or not mime.startswith("image/"):
+        logger.warning(f"Skipping image attachment with unsupported MIME type: {attachment.file_name}")
+        return None
+    try:
+        return store.save_file(
+            session_key=session_key,
+            source_path=path,
+            filename=attachment.file_name,
+            mime_type=mime,
+        )
+    except OSError as exc:
+        logger.warning(f"Failed to copy image attachment {attachment.file_name}: {exc}")
+        return None

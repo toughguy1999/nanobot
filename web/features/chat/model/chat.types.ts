@@ -19,15 +19,14 @@ export type DraftAttachment = ChatAttachment & {
   status: AttachmentStatus;
 };
 
-export type ChatMessageMetadata = Record<string, unknown> & {
-  attachments?: ChatAttachment[];
-};
+export type ChatMessageMetadata = Record<string, unknown>;
 
 export type ChatMessage = {
   id: string;
   role: ChatRole;
   content: string;
   createdAt: string;
+  attachments?: ChatAttachment[];
   metadata?: ChatMessageMetadata;
 };
 

@@ -32,7 +32,7 @@ describe("ConversationView attachments", () => {
             role: "user",
             content: "please read",
             createdAt: "2026-06-26T00:00:00.000Z",
-            metadata: { attachments: [attachment] }
+            attachments: [attachment]
           }
         ])}
       />
@@ -57,7 +57,7 @@ describe("ConversationView attachments", () => {
             role: "assistant",
             content: "answer",
             createdAt: "2026-06-26T00:00:00.000Z",
-            metadata: { attachments: [attachment] }
+            attachments: [attachment]
           }
         ])}
       />

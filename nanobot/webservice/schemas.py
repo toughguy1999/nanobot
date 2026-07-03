@@ -16,6 +16,9 @@ class WebPreparedAttachment:
     size: int
     type: str
     path: str
+    file_id: str | None = None
+    status: str = "ready"
+    uploaded_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -23,7 +26,6 @@ class PreparedAttachments:
     """Attachment data prepared for a single user turn."""
 
     attachments: list[WebPreparedAttachment]
-    metadata: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)

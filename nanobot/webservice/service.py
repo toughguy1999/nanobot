@@ -36,7 +36,6 @@ class WebService:
             self._serialize_session_summary(item)
             for item in self.sessions.list_sessions(
                 channel=self.channel_name,
-                backfill_session_title=True,
             )
         ]
         return {"sessions": sessions}
@@ -56,10 +55,7 @@ class WebService:
 
         return {
             "session": self._serialize_session(session),
-            "messages": [
-                self._serialize_message(session, message, index)
-                for index, message in enumerate(session.messages)
-            ],
+            "messages": self._project_history_to_web_messages(session),
         }
 
     def pin_session(self, session_id: str) -> dict[str, Any]:
@@ -129,7 +125,7 @@ class WebService:
             file_ids=attachment_file_ids,
             session_key=session_key,
         )
-        bound_attachments = self.attachments.bind_to_message(
+        self.attachments.bind_to_message(
             file_ids=attachment_file_ids,
             session_key=session_key,
         )
@@ -143,7 +139,6 @@ class WebService:
             metadata={
                 "session_key": session_key,
                 "display_content": display_content,
-                "attachments": bound_attachments,
             },
         )
 
@@ -205,21 +200,57 @@ class WebService:
             "pinned": bool(metadata.get("pinned", False)),
         }
 
-    def _serialize_message(self, session: Session, message: dict[str, Any], index: int) -> dict[str, Any]:
-        metadata = {
-            key: value
-            for key, value in message.items()
-            if key not in {"role", "content", "timestamp"}
-        }
-        if "tools_used" in metadata:
-            metadata["toolsUsed"] = metadata.pop("tools_used")
+    def _project_history_to_web_messages(self, session: Session) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        pending_tools: list[str] = []
+        visible_index = 0
 
-        data = {
-            "id": f"{session.key}:{index}",
-            "role": message.get("role"),
-            "content": message.get("content", ""),
-            "createdAt": message.get("timestamp"),
-        }
-        if metadata:
-            data["metadata"] = metadata
-        return data
+        for record in session.messages:
+            record_type = record.get("_type")
+            if record_type == "tool_call":
+                function = record.get("function") or {}
+                name = function.get("name")
+                if isinstance(name, str) and name:
+                    pending_tools.append(name)
+                continue
+            if record_type != "message":
+                continue
+
+            role = record.get("role")
+            if role == "system":
+                continue
+
+            data = {
+                "id": f"{session.key}:{visible_index}",
+                "role": role,
+                "content": self._web_message_content(record),
+                "createdAt": record.get("created_at"),
+            }
+            if role == "user" and record.get("attachments"):
+                data["attachments"] = record["attachments"]
+            metadata: dict[str, Any] = {}
+            if role == "assistant":
+                metadata["toolsUsed"] = pending_tools
+                pending_tools = []
+            if metadata:
+                data["metadata"] = metadata
+            messages.append(data)
+            visible_index += 1
+
+        return messages
+
+    def _web_message_content(self, record: dict[str, Any]) -> str:
+        display_content = record.get("display_content")
+        if isinstance(display_content, str):
+            return display_content
+        content = record.get("content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = [
+                str(item.get("text", ""))
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            ]
+            return "\n".join(part for part in parts if part)
+        return str(content) if content is not None else ""

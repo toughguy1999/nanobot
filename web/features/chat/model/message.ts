@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatMessageMetadata, ChatRole } from "./chat.types";
+import type { ChatAttachment, ChatMessage, ChatMessageMetadata, ChatRole } from "./chat.types";
 
 export function createId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -11,13 +11,15 @@ export function createId(prefix: string) {
 export function createMessage(
   role: ChatRole,
   content: string,
-  metadata?: ChatMessageMetadata
+  metadata?: ChatMessageMetadata,
+  attachments?: ChatAttachment[]
 ): ChatMessage {
   return {
     id: createId("message"),
     role,
     content,
     createdAt: new Date().toISOString(),
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(metadata ? { metadata } : {})
   };
 }

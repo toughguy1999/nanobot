@@ -1,13 +1,22 @@
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.web import WebChannel
 from nanobot.config.schema import WebConfig
 from nanobot.session.manager import Session
 from nanobot.webservice.attachments import DEFAULT_ATTACHMENT_PROMPT, WebAttachmentStore
+
+
+def make_png_bytes() -> bytes:
+    image = Image.new("RGB", (10, 10), (255, 0, 0))
+    output = BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
 
 
 def test_web_channel_session_routes(tmp_path: Path):
@@ -21,8 +30,11 @@ def test_web_channel_session_routes(tmp_path: Path):
     assert created.json()["session"]["id"] == "session-test"
 
     session = channel._web_service.sessions.get_or_create("web:session-test")
+    session.metadata["sessionTitle"] = "first message"
     session.add_message("user", "first message")
-    session.add_message("assistant", "answer", tools_used=[])
+    session.add_tool_call(id="call_1", name="read_file", arguments={"path": "README.md"})
+    session.add_tool_result(tool_call_id="call_1", name="read_file", content="contents")
+    session.add_message("assistant", "answer")
     channel._web_service.sessions.save(session)
 
     listed = client.get("/sessions")
@@ -44,27 +56,26 @@ def test_web_channel_session_routes(tmp_path: Path):
     assert body["session"]["sessionTitle"] == "first message"
     assert body["messages"][0]["role"] == "user"
     assert body["messages"][0]["createdAt"]
-    assert body["messages"][1]["metadata"] == {"toolsUsed": []}
+    assert body["messages"][1]["metadata"] == {"toolsUsed": ["read_file"]}
 
 
-def test_web_channel_session_list_backfills_missing_title(tmp_path: Path):
+def test_web_channel_session_list_does_not_backfill_missing_title(tmp_path: Path):
     channel = WebChannel(WebConfig(), MessageBus())
     channel._web_service.sessions.sessions_dir = tmp_path
 
     session = Session(key="web:legacy-session")
     session.add_message("user", "legacy title")
-    session.metadata.pop("sessionTitle")
     channel._web_service.sessions.save(session)
 
     client = TestClient(channel.app)
     listed = client.get("/sessions")
 
     assert listed.status_code == 200
-    assert listed.json()["sessions"][0]["sessionTitle"] == "legacy title"
+    assert listed.json()["sessions"][0]["sessionTitle"] is None
 
     reloaded = channel._web_service.sessions.get("web:legacy-session", refresh=True)
     assert reloaded is not None
-    assert reloaded.metadata["sessionTitle"] == "legacy title"
+    assert "sessionTitle" not in reloaded.metadata
 
 
 def test_web_channel_pin_session(tmp_path: Path):
@@ -210,7 +221,7 @@ def test_web_channel_websocket_text_message_regression(tmp_path: Path):
     assert captured["sender_id"] == "session-one"
     assert captured["content"] == "hello"
     assert captured["attachments"] == []
-    assert captured["metadata"]["attachments"] == []
+    assert "attachments" not in captured["metadata"]
 
 
 def test_web_channel_websocket_allows_pure_text_attachment(tmp_path: Path):
@@ -242,8 +253,9 @@ def test_web_channel_websocket_allows_pure_text_attachment(tmp_path: Path):
     assert len(captured["attachments"]) == 1
     assert captured["attachments"][0].file_name == "notes.md"
     assert captured["attachments"][0].type == "text"
+    assert captured["attachments"][0].file_id == attachment["fileId"]
     assert captured["metadata"]["display_content"] == DEFAULT_ATTACHMENT_PROMPT
-    assert captured["metadata"]["attachments"][0]["fileId"] == attachment["fileId"]
+    assert "attachments" not in captured["metadata"]
 
 
 def test_web_channel_websocket_image_attachment_enters_attachments(tmp_path: Path):
@@ -252,7 +264,7 @@ def test_web_channel_websocket_image_attachment_enters_attachments(tmp_path: Pat
     attachment = channel._web_service.attachments.save_temporary(
         session_key="web:session-one",
         filename="image.png",
-        content=b"png",
+        content=make_png_bytes(),
     )
     captured: dict[str, Any] = {}
 
@@ -274,8 +286,9 @@ def test_web_channel_websocket_image_attachment_enters_attachments(tmp_path: Pat
     assert captured["content"] == "look"
     assert len(captured["attachments"]) == 1
     assert captured["attachments"][0].type == "image"
+    assert captured["attachments"][0].file_id == attachment["fileId"]
     assert captured["attachments"][0].path.endswith(
-        "att_" + attachment["fileId"].removeprefix("att_") + ".png"
+        "att_" + attachment["fileId"].removeprefix("att_") + f".{attachment['extension']}"
     )
     assert Path(captured["attachments"][0].path).is_file()
 
@@ -319,7 +332,8 @@ def test_web_channel_history_serializes_attachment_metadata(tmp_path: Path):
     assert response.status_code == 200
     message = response.json()["messages"][0]
     assert message["content"] == "display text"
-    assert message["metadata"]["attachments"] == [attachment]
+    assert message["attachments"] == [attachment]
+    assert "metadata" not in message
 
 
 def test_web_channel_delete_session_cleans_attachments(tmp_path: Path):

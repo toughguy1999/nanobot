@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from nanobot.agent.attachments import stabilize_user_message
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.subagent import SubagentManager
@@ -17,9 +18,10 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
-from nanobot.bus.events import InboundMessage, OutboundMessage
+from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
+from nanobot.session.history import to_memory_transcript, trim_boundary
 from nanobot.session.manager import SessionManager
 
 if TYPE_CHECKING:
@@ -199,11 +201,25 @@ class AgentLoop:
         if isinstance(cron_tool, CronTool):
             cron_tool.set_context(msg.channel, msg.chat_id)
 
-        # Build initial messages (use get_history for LLM-formatted messages)
-        messages = self.context.build_messages(
-            history=session.get_history(),
-            current_message=msg.content,
-            attachments=msg.attachments if msg.attachments else None,
+        # Stabilize and persist the accepted user message before calling the provider.
+        display_content = msg.metadata.get("display_content") if msg.metadata else None
+        stable_user = stabilize_user_message(
+            session_key=key,
+            text=msg.content,
+            attachments=msg.attachments if msg.attachments else None
+        )
+        if key.startswith("web:") and not session.metadata.get("sessionTitle"):
+            session.metadata["sessionTitle"] = display_content
+            self.sessions.save(session)
+        user_record = session.add_user_message(
+            stable_user["content"],
+            display_content=display_content,
+            attachments=_attachment_history_metadata(msg.attachments),
+        )
+        self.sessions.append(session, user_record)
+
+        messages = self.context.build_messages_from_llm_history(
+            session.get_llm_history(),
             channel=msg.channel,
             chat_id=msg.chat_id,
         )
@@ -216,12 +232,15 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
-            # Call LLM
-            response = await self.provider.chat(
-                messages=messages,
-                tools=self.tools.get_definitions(),
-                model=self.model
-            )
+            try:
+                response = await self.provider.chat(
+                    messages=messages,
+                    tools=self.tools.get_definitions(),
+                    model=self.model
+                )
+            except Exception as exc:
+                final_content = f"Sorry, I encountered an error: {str(exc)}"
+                break
 
             # Handle tool calls
             if response.has_tool_calls:
@@ -241,6 +260,14 @@ class AgentLoop:
                     messages, response.content, tool_call_dicts,
                     reasoning_content=response.reasoning_content,
                 )
+                for tool_call in response.tool_calls:
+                    record = session.add_tool_call(
+                        id=tool_call.id,
+                        name=tool_call.name,
+                        arguments=tool_call.arguments,
+                        content=response.content or "",
+                    )
+                    self.sessions.append(session, record)
 
                 # Execute tools
                 for tool_call in response.tool_calls:
@@ -248,6 +275,12 @@ class AgentLoop:
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    record = session.add_tool_result(
+                        tool_call_id=tool_call.id,
+                        name=tool_call.name,
+                        content=result,
+                    )
+                    self.sessions.append(session, record)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -268,15 +301,8 @@ class AgentLoop:
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info(f"Response to {msg.channel}:{msg.sender_id}: {preview}")
 
-        # Save user-facing content to history; attachment context is built by ContextBuilder.
-        display_content = msg.metadata.get("display_content") if msg.metadata else None
-        user_content = display_content if isinstance(display_content, str) else msg.content
-        attachments = msg.metadata.get("attachments") if msg.metadata else None
-        user_metadata = {"attachments": attachments} if isinstance(attachments, list) else {}
-        session.add_message("user", user_content, **user_metadata)
-        session.add_message("assistant", final_content,
-                            tools_used=tools_used if tools_used else None)
-        self.sessions.save(session)
+        assistant_record = session.add_assistant_message(final_content)
+        self.sessions.append(session, assistant_record)
 
         return OutboundMessage(
             channel=msg.channel,
@@ -322,9 +348,10 @@ class AgentLoop:
             cron_tool.set_context(origin_channel, origin_chat_id)
 
         # Build messages with the announce content
-        messages = self.context.build_messages(
-            history=session.get_history(),
-            current_message=msg.content,
+        system_record = session.add_system_message(f"[System: {msg.sender_id}] {msg.content}")
+        self.sessions.append(session, system_record)
+        messages = self.context.build_messages_from_llm_history(
+            session.get_llm_history(),
             channel=origin_channel,
             chat_id=origin_chat_id,
         )
@@ -336,11 +363,15 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
-            response = await self.provider.chat(
-                messages=messages,
-                tools=self.tools.get_definitions(),
-                model=self.model
-            )
+            try:
+                response = await self.provider.chat(
+                    messages=messages,
+                    tools=self.tools.get_definitions(),
+                    model=self.model
+                )
+            except Exception as exc:
+                final_content = f"Sorry, I encountered an error: {str(exc)}"
+                break
 
             if response.has_tool_calls:
                 tool_call_dicts = [
@@ -358,11 +389,25 @@ class AgentLoop:
                     messages, response.content, tool_call_dicts,
                     reasoning_content=response.reasoning_content,
                 )
+                for tool_call in response.tool_calls:
+                    record = session.add_tool_call(
+                        id=tool_call.id,
+                        name=tool_call.name,
+                        arguments=tool_call.arguments,
+                        content=response.content or "",
+                    )
+                    self.sessions.append(session, record)
 
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    record = session.add_tool_result(
+                        tool_call_id=tool_call.id,
+                        name=tool_call.name,
+                        content=result,
+                    )
+                    self.sessions.append(session, record)
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )
@@ -375,10 +420,8 @@ class AgentLoop:
         if final_content is None:
             final_content = "Background task completed."
 
-        # Save to session (mark as system message in history)
-        session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
-        session.add_message("assistant", final_content)
-        self.sessions.save(session)
+        assistant_record = session.add_assistant_message(final_content)
+        self.sessions.append(session, assistant_record)
 
         return OutboundMessage(
             channel=origin_channel,
@@ -392,23 +435,23 @@ class AgentLoop:
             return
         memory = MemoryStore(self.workspace)
         if archive_all:
-            old_messages = session.messages
+            keep_records = []
+            old_messages = list(session.messages)
             keep_count = 0
         else:
             keep_count = min(10, max(2, self.memory_window // 2))
-            old_messages = session.messages[:-keep_count]
+            keep_records = trim_boundary(session.messages, keep_count)
+            keep_ids = {_history_record_key(record) for record in keep_records}
+            old_messages = [
+                record
+                for record in session.messages
+                if _history_record_key(record) not in keep_ids
+            ]
         if not old_messages:
             return
         logger.info(f"Memory consolidation started: {len(session.messages)} messages, archiving {len(old_messages)}, keeping {keep_count}")
 
-        # Format messages for LLM (include tool names when available)
-        lines = []
-        for m in old_messages:
-            if not m.get("content"):
-                continue
-            tools = f" [tools: {', '.join(m['tools_used'])}]" if m.get("tools_used") else ""
-            lines.append(f"[{m.get('timestamp', '?')[:16]}] {m['role'].upper()}{tools}: {m['content']}")
-        conversation = "\n".join(lines)
+        conversation = to_memory_transcript(old_messages)
         current_memory = memory.read_long_term()
 
         prompt = f"""You are a memory consolidation agent. Process this conversation and return a JSON object with exactly two keys:
@@ -444,7 +487,7 @@ Respond with ONLY valid JSON, no markdown fences."""
                 if update != current_memory:
                     memory.write_long_term(update)
 
-            session.messages = session.messages[-keep_count:] if keep_count else []
+            session.messages = keep_records
             self.sessions.save(session)
             logger.info(f"Memory consolidation done, session trimmed to {len(session.messages)} messages")
         except Exception as e:
@@ -478,3 +521,15 @@ Respond with ONLY valid JSON, no markdown fences."""
 
         response = await self._process_message(msg, session_key=session_key)
         return response.content if response else ""
+
+
+def _history_record_key(record: dict) -> tuple[str, str]:
+    record_type = str(record.get("_type", ""))
+    if record_type == "tool_result":
+        return (record_type, str(record.get("tool_call_id", "")))
+    return (record_type, str(record.get("id", "")))
+
+
+def _attachment_history_metadata(attachments: list[InboundAttachment]) -> list[dict[str, object]]:
+    """Return JSON-serializable attachment metadata for session history."""
+    return [attachment.to_history_metadata() for attachment in attachments]

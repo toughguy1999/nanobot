@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import shutil
 import uuid
 from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from nanobot.agent.attachments import (
     SUPPORTED_ATTACHMENT_EXTENSIONS,
@@ -20,6 +24,9 @@ from nanobot.webservice.schemas import PreparedAttachments, WebPreparedAttachmen
 MAX_ATTACHMENTS_PER_MESSAGE = 5
 MAX_SINGLE_FILE_SIZE = 10 * 1024 * 1024
 MAX_TOTAL_ATTACHMENT_SIZE = 25 * 1024 * 1024
+TARGET_IMAGE_FILE_SIZE = 1 * 1024 * 1024
+IMAGE_MAX_DIMENSION = 2048
+IMAGE_JPEG_QUALITY = 75
 TEMPORARY_TTL = timedelta(hours=24)
 DEFAULT_ATTACHMENT_PROMPT = "请查看我上传的文件。"
 
@@ -48,6 +55,17 @@ class WebAttachmentStore:
         size = len(content)
         if size > MAX_SINGLE_FILE_SIZE:
             raise AttachmentTooLargeError("file is too large")
+        if attachment_type == "image":
+            compressed = self._compress_image_content(
+                filename=clean_name,
+                content=content,
+                mime_type=mime_type,
+            )
+            clean_name = compressed["filename"]
+            extension = compressed["extension"]
+            content = compressed["content"]
+            mime_type = compressed["mime_type"]
+            size = len(content)
 
         file_id = f"att_{uuid.uuid4().hex}"
         storage_name = f"{file_id}{extension}"
@@ -116,7 +134,6 @@ class WebAttachmentStore:
 
         return PreparedAttachments(
             attachments=[self._to_prepared_attachment(record) for record in usable_records],
-            metadata=[self.to_public_metadata(record) for record in usable_records],
         )
 
     def bind_to_message(
@@ -242,6 +259,109 @@ class WebAttachmentStore:
         self._type_for_extension(extension)
         return cleaned
 
+    def _compress_image_content(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        mime_type: str | None,
+    ) -> dict[str, Any]:
+        try:
+            opened_image = Image.open(BytesIO(content))
+            opened_image.load()
+        except (OSError, UnidentifiedImageError) as exc:
+            raise AttachmentError("invalid image file") from exc
+
+        guessed_mime = mimetypes.guess_type(filename)[0]
+        original_mime = (
+            mime_type if mime_type and mime_type.startswith("image/") else guessed_mime or "image/jpeg"
+        )
+        original_extension = Path(filename).suffix.lower()
+
+        if self._is_animated_image(opened_image):
+            return {
+                "content": content,
+                "mime_type": original_mime,
+                "extension": original_extension,
+                "filename": filename,
+            }
+
+        image: Image.Image = ImageOps.exif_transpose(opened_image)
+        image.thumbnail((IMAGE_MAX_DIMENSION, IMAGE_MAX_DIMENSION), Image.Resampling.LANCZOS)
+
+        resampled = self._save_resampled_image(
+            image=image,
+            source_format=opened_image.format,
+            extension=original_extension,
+        )
+        if len(resampled) <= TARGET_IMAGE_FILE_SIZE:
+            return {
+                "content": resampled,
+                "mime_type": original_mime,
+                "extension": original_extension,
+                "filename": filename,
+            }
+
+        jpeg_image = self._to_jpeg_ready_image(image)
+        output = BytesIO()
+        jpeg_image.save(
+            output,
+            format="JPEG",
+            quality=IMAGE_JPEG_QUALITY,
+            optimize=True,
+            progressive=False,
+        )
+        return {
+            "content": output.getvalue(),
+            "mime_type": "image/jpeg",
+            "extension": ".jpg",
+            "filename": f"{Path(filename).stem}.jpg",
+        }
+
+    def _is_animated_image(self, image: Image.Image) -> bool:
+        return bool(getattr(image, "is_animated", False) and getattr(image, "n_frames", 1) > 1)
+
+    def _save_resampled_image(
+        self,
+        *,
+        image: Image.Image,
+        source_format: str | None,
+        extension: str,
+    ) -> bytes:
+        output = BytesIO()
+        save_format = source_format or self._image_format_for_extension(extension)
+        save_kwargs: dict[str, Any] = {}
+        if save_format == "JPEG":
+            image = self._to_jpeg_ready_image(image)
+            save_kwargs = {"quality": 95, "optimize": True}
+        elif save_format == "PNG":
+            save_kwargs = {"optimize": True}
+        image.save(output, format=save_format, **save_kwargs)
+        return output.getvalue()
+
+    def _image_format_for_extension(self, extension: str) -> str:
+        return {
+            ".jpg": "JPEG",
+            ".jpeg": "JPEG",
+            ".png": "PNG",
+            ".gif": "GIF",
+            ".webp": "WEBP",
+            ".bmp": "BMP",
+        }.get(extension, "JPEG")
+
+    def _to_jpeg_ready_image(self, image: Image.Image) -> Image.Image:
+        if image.mode not in {"RGB", "L"}:
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            if image.mode in {"RGBA", "LA"}:
+                alpha = image.getchannel("A")
+                background.paste(image.convert("RGBA"), mask=alpha)
+            else:
+                background.paste(image.convert("RGB"))
+            image = background
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+        return image
+
     def _load_index(self) -> dict[str, dict[str, Any]]:
         if not self.index_path.exists():
             return {}
@@ -274,6 +394,9 @@ class WebAttachmentStore:
             size=int(record["size"]),
             type=record["type"],
             path=str(path),
+            file_id=record["fileId"],
+            status="ready",
+            uploaded_at=record.get("uploadedAt"),
         )
 
     def _relative_path(self, path: Path) -> str:

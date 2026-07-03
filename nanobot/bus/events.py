@@ -15,6 +15,25 @@ class InboundAttachment:
     size: int
     type: str
     path: str
+    file_id: str | None = None
+    status: str = "ready"
+    uploaded_at: str | None = None
+
+    def to_history_metadata(self) -> dict[str, Any]:
+        """Return JSON-safe attachment metadata for persisted session history."""
+        metadata: dict[str, Any] = {
+            "fileName": self.file_name,
+            "mimeType": self.mime_type,
+            "extension": self.extension,
+            "size": self.size,
+            "type": self.type,
+            "status": self.status,
+        }
+        if self.file_id:
+            metadata["fileId"] = self.file_id
+        if self.uploaded_at:
+            metadata["uploadedAt"] = self.uploaded_at
+        return metadata
 
 
 @dataclass

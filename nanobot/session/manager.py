@@ -1,6 +1,7 @@
 """Session management for conversation history."""
 
 import json
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.session.history import to_llm_messages, validate_history_record
 from nanobot.utils.helpers import PROJECT_ROOT, ensure_dir, safe_filename
 
 
@@ -25,35 +27,86 @@ class Session:
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def add_message(self, role: str, content: str, **kwargs: Any) -> None:
-        """Add a message to the session."""
-        if self.key.startswith("web:") and role == "user" and not self.metadata.get("sessionTitle"):
-            self.metadata["sessionTitle"] = content
-
+    def add_message(self, role: str, content: str | list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        """Add a conversational message to the session."""
         msg = {
+            "_type": "message",
+            "id": f"msg_{uuid.uuid4().hex}",
             "role": role,
             "content": content,
-            "timestamp": datetime.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
             **kwargs
         }
         self.messages.append(msg)
         self.updated_at = datetime.now()
+        return msg
 
-    def get_history(self, max_messages: int = 50) -> list[dict[str, Any]]:
+    def add_user_message(self, content: str | list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        """Append a user message record."""
+        return self.add_message("user", content, **kwargs)
+
+    def add_assistant_message(self, content: str, **kwargs: Any) -> dict[str, Any]:
+        """Append an assistant message record."""
+        return self.add_message("assistant", content, **kwargs)
+
+    def add_system_message(self, content: str, **kwargs: Any) -> dict[str, Any]:
+        """Append a session-local system message record."""
+        return self.add_message("system", content, **kwargs)
+
+    def add_tool_call(
+        self,
+        *,
+        id: str,
+        name: str,
+        arguments: str | dict[str, Any],
+        content: str = "",
+    ) -> dict[str, Any]:
+        """Append a tool call record."""
+        args = arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
+        record = {
+            "_type": "tool_call",
+            "id": id,
+            "type": "function",
+            "function": {"name": name, "arguments": args},
+            "content": content,
+            "created_at": datetime.now().isoformat(),
+        }
+        self.messages.append(record)
+        self.updated_at = datetime.now()
+        return record
+
+    def add_tool_result(
+        self,
+        *,
+        tool_call_id: str,
+        name: str,
+        content: str,
+    ) -> dict[str, Any]:
+        """Append a tool result record."""
+        record = {
+            "_type": "tool_result",
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": name,
+            "content": content,
+            "created_at": datetime.now().isoformat(),
+        }
+        self.messages.append(record)
+        self.updated_at = datetime.now()
+        return record
+
+    def get_llm_history(self, max_messages: int = 50) -> list[dict[str, Any]]:
         """
-        Get message history for LLM context.
+        Get provider-formatted history for LLM context.
 
         Args:
-            max_messages: Maximum messages to return.
+            max_messages: Maximum canonical records to include.
 
         Returns:
-            List of messages in LLM format.
+            List of provider messages.
         """
-        # Get recent messages
         recent = self.messages[-max_messages:] if len(self.messages) > max_messages else self.messages
-
-        # Convert to LLM format (just role and content)
-        return [{"role": m["role"], "content": m["content"]} for m in recent]
+        return to_llm_messages(recent)
 
     def clear(self) -> None:
         """Clear all messages in the session."""
@@ -125,7 +178,7 @@ class SessionManager:
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
                         updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
                     else:
-                        messages.append(data)
+                        messages.append(dict(validate_history_record(data)))
 
             return Session(
                 key=key,
@@ -150,6 +203,7 @@ class SessionManager:
 
     def save(self, session: Session) -> None:
         """Save a session to disk."""
+        ensure_dir(self.sessions_dir)
         path = self._get_session_path(session.key)
 
         with open(path, "w") as f:
@@ -168,6 +222,25 @@ class SessionManager:
 
         self._cache[session.key] = session
 
+    def append(self, session: Session, record: dict[str, Any]) -> None:
+        """Append one canonical history record to disk and cache."""
+        ensure_dir(self.sessions_dir)
+        path = self._get_session_path(session.key)
+        if not path.exists():
+            self.save(Session(
+                key=session.key,
+                messages=[],
+                created_at=session.created_at,
+                updated_at=session.updated_at,
+                metadata=session.metadata,
+            ))
+
+        with open(path, "a") as f:
+            f.write(json.dumps(record) + "\n")
+
+        session.updated_at = datetime.now()
+        self._cache[session.key] = session
+
     def ensure_session_title(self, key: str) -> str | None:
         """Backfill a web session title from its first user message if needed."""
         session = self.get(key, refresh=True)
@@ -178,7 +251,11 @@ class SessionManager:
             (
                 message
                 for message in session.messages
-                if message.get("role") == "user" and message.get("content")
+                if (
+                    message.get("_type") == "message"
+                    and message.get("role") == "user"
+                    and message.get("content")
+                )
             ),
             None,
         )

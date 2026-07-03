@@ -242,9 +242,7 @@ export function useChatController() {
         appendMessageToSession(
           currentSessions,
           sendingSessionId,
-          createMessage("user", content || DEFAULT_ATTACHMENT_PROMPT, {
-            attachments: attachmentsToSend
-          })
+          createMessage("user", content || DEFAULT_ATTACHMENT_PROMPT, undefined, attachmentsToSend)
         )
       )
     );

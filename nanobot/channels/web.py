@@ -258,4 +258,7 @@ class WebChannel(BaseChannel):
             size=attachment.size,
             type=attachment.type,
             path=attachment.path,
+            file_id=attachment.file_id,
+            status=attachment.status,
+            uploaded_at=attachment.uploaded_at,
         )

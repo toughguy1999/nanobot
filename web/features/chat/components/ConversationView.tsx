@@ -19,8 +19,7 @@ export function ConversationView({ session }: ConversationViewProps) {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           {session.messages.map((message) => {
             const isUser = message.role === "user";
-            const attachments =
-              isUser && message.metadata?.attachments ? message.metadata.attachments : [];
+            const attachments = isUser && message.attachments ? message.attachments : [];
 
             return (
               <div
