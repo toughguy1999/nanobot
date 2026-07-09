@@ -8,9 +8,15 @@ type AttachmentListProps = {
   attachments: Array<ChatAttachment | DraftAttachment>;
   className?: string;
   onRemove?: (fileId: string) => void;
+  variant?: "message" | "composer";
 };
 
-export function AttachmentList({ attachments, className, onRemove }: AttachmentListProps) {
+export function AttachmentList({
+  attachments,
+  className,
+  onRemove,
+  variant = "message"
+}: AttachmentListProps) {
   if (attachments.length === 0) {
     return null;
   }
@@ -24,7 +30,12 @@ export function AttachmentList({ attachments, className, onRemove }: AttachmentL
         return (
           <div
             key={attachment.fileId}
-            className="flex h-9 max-w-full items-center gap-2 rounded-md border bg-white px-2 text-xs text-foreground shadow-sm"
+            className={cn(
+              "flex h-9 max-w-full items-center gap-2 px-2 text-xs text-foreground shadow-sm",
+              variant === "composer"
+                ? "rounded-[20px] border bg-[hsl(var(--surface))] shadow-md shadow-[hsl(var(--shadow)/0.12)]"
+                : "rounded-md border bg-[hsl(var(--surface))]"
+            )}
           >
             <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="max-w-40 truncate font-medium">{attachment.fileName}</span>

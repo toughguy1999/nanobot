@@ -11,8 +11,8 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantClasses: Record<ButtonVariant, string> = {
   default: "bg-primary text-primary-foreground hover:bg-primary/90",
-  secondary: "bg-muted text-foreground hover:bg-muted/80",
-  ghost: "hover:bg-muted",
+  secondary: "bg-[hsl(var(--surface-subtle))] text-foreground hover:bg-muted",
+  ghost: "hover:bg-[hsl(var(--surface-subtle))]",
   destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90"
 };
 

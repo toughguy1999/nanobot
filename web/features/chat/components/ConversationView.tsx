@@ -10,7 +10,7 @@ type ConversationViewProps = {
 
 export function ConversationView({ session }: ConversationViewProps) {
   return (
-    <ScrollArea className="min-h-0 flex-1 px-6 py-6">
+    <ScrollArea className="min-h-0 flex-1 px-6 pb-40 pt-6">
       {!session || session.messages.length === 0 ? (
         <div className="flex h-full min-h-80 items-center justify-center text-center text-sm text-muted-foreground">
           开始一次新的 Nanobot 对话
@@ -27,7 +27,7 @@ export function ConversationView({ session }: ConversationViewProps) {
                 className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}
               >
                 {!isUser ? (
-                  <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--surface-subtle))] text-muted-foreground">
                     <Bot className="h-4 w-4" aria-hidden="true" />
                   </div>
                 ) : null}
@@ -35,15 +35,15 @@ export function ConversationView({ session }: ConversationViewProps) {
                   className={cn(
                     "max-w-[min(42rem,80%)] rounded-md px-4 py-3 text-sm leading-6 shadow-sm",
                     isUser
-                      ? "bg-primary text-primary-foreground"
-                      : "border bg-white text-foreground"
+                      ? "bg-primary text-primary-foreground shadow-[hsl(var(--shadow)/0.18)]"
+                      : "border bg-[hsl(var(--surface))] text-foreground shadow-[hsl(var(--shadow)/0.08)]"
                   )}
                 >
                   <AttachmentList attachments={attachments} className={attachments.length > 0 ? "mb-2" : ""} />
                   <div className="whitespace-pre-wrap break-words">{message.content}</div>
                 </div>
                 {isUser ? (
-                  <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--accent)/0.14)] text-[hsl(var(--accent))]">
                     <UserRound className="h-4 w-4" aria-hidden="true" />
                   </div>
                 ) : null}

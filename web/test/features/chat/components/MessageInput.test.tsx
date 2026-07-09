@@ -34,11 +34,24 @@ describe("MessageInput", () => {
     const user = userEvent.setup();
     const props = createProps({ attachments: [readyAttachment] });
     render(<MessageInput {...props} />);
+    const chip = screen.getByText("notes.txt").closest("div");
 
     expect(screen.getByText("notes.txt")).toBeVisible();
+    expect(chip).toHaveClass("rounded-[20px]");
+    expect(chip).not.toHaveClass("border");
     await user.click(screen.getByRole("button", { name: "移除附件 notes.txt" }));
 
     expect(props.onRemoveAttachment).toHaveBeenCalledWith("att_one");
+  });
+
+  it("renders draft attachments outside the textarea surface", () => {
+    const props = createProps({ attachments: [readyAttachment] });
+    render(<MessageInput {...props} />);
+
+    const chip = screen.getByText("notes.txt");
+    const textareaSurface = screen.getByLabelText("消息内容").parentElement;
+
+    expect(textareaSurface).not.toContainElement(chip);
   });
 
   it("passes selected files from the add-file input", () => {
@@ -84,5 +97,35 @@ describe("MessageInput", () => {
     fireEvent.keyDown(screen.getByLabelText("消息内容"), { key: "Enter" });
 
     expect(props.onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps textarea height at the 64px minimum when content is short", () => {
+    const props = createProps();
+    const { rerender } = render(<MessageInput {...props} />);
+    const textarea = screen.getByLabelText("消息内容");
+
+    Object.defineProperty(textarea, "scrollHeight", {
+      configurable: true,
+      value: 32
+    });
+
+    rerender(<MessageInput {...props} value="hello" />);
+
+    expect(textarea).toHaveStyle({ height: "64px", overflowY: "hidden" });
+  });
+
+  it("caps textarea height at 180px and enables internal scrolling", () => {
+    const props = createProps();
+    const { rerender } = render(<MessageInput {...props} />);
+    const textarea = screen.getByLabelText("消息内容");
+
+    Object.defineProperty(textarea, "scrollHeight", {
+      configurable: true,
+      value: 240
+    });
+
+    rerender(<MessageInput {...props} value={"hello\n".repeat(20)} />);
+
+    expect(textarea).toHaveStyle({ height: "180px", overflowY: "auto" });
   });
 });

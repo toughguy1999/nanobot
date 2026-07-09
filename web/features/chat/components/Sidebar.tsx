@@ -17,7 +17,7 @@ import type { Session } from "../model/chat.types";
 import { getSessionTitle } from "../model/session";
 
 const sidebarItemClass =
-  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted";
+  "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-[hsl(var(--surface-subtle))]";
 
 type SidebarProps = {
   sessions: Session[];
@@ -58,8 +58,8 @@ export function Sidebar({
       <div
         key={session.id}
         className={cn(
-          "relative flex items-center gap-1 rounded-md pr-1 transition-colors hover:bg-muted",
-          isActive && "bg-muted font-medium"
+          "relative flex items-center gap-1 rounded-md pr-1 transition-colors hover:bg-[hsl(var(--surface-subtle))]",
+          isActive && "bg-[hsl(var(--surface-subtle))] font-medium shadow-sm shadow-[hsl(var(--shadow)/0.08)]"
         )}
       >
         <button
@@ -84,10 +84,10 @@ export function Sidebar({
         </button>
 
         {menuIsOpen ? (
-          <div className="absolute right-1 top-9 z-10 w-32 rounded-md border bg-white py-1 text-sm shadow-md">
+          <div className="absolute right-1 top-9 z-10 w-32 rounded-md border bg-[hsl(var(--surface))] py-1 text-sm shadow-md shadow-[hsl(var(--shadow)/0.16)]">
             <button
               type="button"
-              className="w-full px-3 py-2 text-left hover:bg-muted"
+              className="w-full px-3 py-2 text-left hover:bg-[hsl(var(--surface-subtle))]"
               onClick={() => {
                 setOpenMenuSessionId(null);
                 if (session.pinned) {
@@ -101,7 +101,7 @@ export function Sidebar({
             </button>
             <button
               type="button"
-              className="w-full px-3 py-2 text-left text-destructive hover:bg-muted"
+              className="w-full px-3 py-2 text-left text-destructive hover:bg-[hsl(var(--surface-subtle))]"
               onClick={() => {
                 setOpenMenuSessionId(null);
                 if (window.confirm("确认删除该会话？删除后不可恢复。")) {
@@ -133,7 +133,7 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full shrink-0 flex-col overflow-hidden border-r bg-white",
+        "flex h-full shrink-0 flex-col overflow-hidden border-r bg-[hsl(var(--surface))]",
         isCollapsed ? "w-14" : "w-72",
         isInitialized && "transition-[width] duration-200 ease-in-out"
       )}

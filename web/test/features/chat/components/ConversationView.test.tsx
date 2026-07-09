@@ -23,6 +23,12 @@ function createSession(messages: Session["messages"]): Session {
 }
 
 describe("ConversationView attachments", () => {
+  it("keeps bottom breathing room for the floating composer", () => {
+    const { container } = render(<ConversationView session={createSession([])} />);
+
+    expect(container.firstElementChild).toHaveClass("pb-40");
+  });
+
   it("shows user attachments above message text", () => {
     render(
       <ConversationView
@@ -40,8 +46,11 @@ describe("ConversationView attachments", () => {
 
     const attachmentNode = screen.getByText("notes.txt");
     const contentNode = screen.getByText("please read");
+    const chip = attachmentNode.closest("div");
 
     expect(attachmentNode).toBeVisible();
+    expect(chip).toHaveClass("rounded-md", "border");
+    expect(chip).not.toHaveClass("rounded-[20px]");
     expect(contentNode).toBeVisible();
     expect(
       attachmentNode.compareDocumentPosition(contentNode) & Node.DOCUMENT_POSITION_FOLLOWING

@@ -3,17 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 20% 98%;
-  --foreground: 222 28% 12%;
-  --muted: 210 16% 93%;
-  --muted-foreground: 215 14% 39%;
-  --primary: 173 58% 31%;
-  --primary-foreground: 0 0% 100%;
-  --destructive: 0 72% 45%;
+  --background: 42 22% 95%;
+  --foreground: 32 12% 12%;
+  --muted: 36 16% 89%;
+  --muted-foreground: 30 8% 42%;
+  --primary: 30 10% 12%;
+  --primary-foreground: 38 24% 94%;
+  --destructive: 4 64% 45%;
   --destructive-foreground: 0 0% 100%;
-  --border: 214 18% 84%;
-  --input: 214 18% 84%;
-  --ring: 173 58% 31%;
+  --border: 34 14% 80%;
+  --input: 34 14% 80%;
+  --ring: 27 80% 48%;
+  --surface: 42 24% 98%;
+  --surface-subtle: 39 19% 92%;
+  --accent: 27 80% 48%;
+  --accent-foreground: 32 12% 12%;
+  --shadow: 30 18% 44%;
 }
 
 * {
@@ -22,7 +27,14 @@
 
 body {
   min-height: 100vh;
-  background: hsl(var(--background));
+  background:
+    linear-gradient(180deg, hsl(var(--surface)) 0%, hsl(var(--background)) 48%, hsl(var(--surface-subtle)) 100%);
+  color: hsl(var(--foreground));
+  letter-spacing: 0;
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.24);
   color: hsl(var(--foreground));
 }
 

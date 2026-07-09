@@ -22,7 +22,7 @@ export function ChatPage() {
         onUnpinSession={controller.actions.unpinSession}
       />
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section className="relative flex min-w-0 flex-1 flex-col">
         <ChatHeader
           activeSession={controller.activeSession}
           connectionStatus={controller.connectionStatus}
