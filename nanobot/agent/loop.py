@@ -14,6 +14,7 @@ from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
+from nanobot.agent.tools.rag import AbsurdNovelKnowledgeSearchTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
@@ -102,6 +103,9 @@ class AgentLoop:
         # Web tools
         self.tools.register(WebSearchTool(api_key=self.brave_api_key))
         self.tools.register(WebFetchTool())
+
+        # Local RAG tools
+        self.tools.register(AbsurdNovelKnowledgeSearchTool())
 
         # Message tool
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
@@ -227,7 +231,6 @@ class AgentLoop:
         # Agent loop
         iteration = 0
         final_content = None
-        tools_used: list[str] = []
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -271,10 +274,10 @@ class AgentLoop:
 
                 # Execute tools
                 for tool_call in response.tool_calls:
-                    tools_used.append(tool_call.name)
                     args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                     logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    logger.info(f"Tool result: {tool_call.name}({result})")
                     record = session.add_tool_result(
                         tool_call_id=tool_call.id,
                         name=tool_call.name,

@@ -303,6 +303,33 @@ def _make_provider(config):
 
 
 # ============================================================================
+# RAG Commands
+# ============================================================================
+
+rag_app = typer.Typer(help="Manage local RAG knowledge bases")
+app.add_typer(rag_app, name="rag")
+
+
+@rag_app.command("init")
+def rag_init():
+    """Initialize the absurd novel knowledge base."""
+    from nanobot.rag import initialize_absurd_novel_knowledge_base
+
+    try:
+        result = initialize_absurd_novel_knowledge_base()
+    except Exception as exc:
+        console.print(f"[red]Error:[/red] Failed to initialize RAG knowledge base: {exc}")
+        raise typer.Exit(1) from exc
+
+    console.print("[green]OK[/green] 荒诞小说集知识库 initialized")
+    console.print(f"Documents: {result.document_count}")
+    console.print(f"Chunks: {result.chunk_count}")
+    console.print(f"Index: {result.index_path}")
+    console.print(f"Collection: {result.collection_name}")
+    console.print(f"Elapsed: {result.elapsed_seconds:.2f}s")
+
+
+# ============================================================================
 # Gateway / Server
 # ============================================================================
 
