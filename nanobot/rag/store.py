@@ -1,9 +1,14 @@
 """Chroma vector-store access for local RAG."""
 
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import chromadb
+
+_collection: Any | None = None
+_client: Any | None = None
+_collection_lock = Lock()
 
 
 def create_collection(db_dir: Path, collection_name: str) -> Any:
@@ -18,9 +23,15 @@ def create_collection(db_dir: Path, collection_name: str) -> Any:
 
 
 def load_collection(db_dir: Path, collection_name: str) -> Any:
-    """Load an existing Chroma collection."""
-    client = chromadb.PersistentClient(path=str(db_dir))
-    return client.get_collection(collection_name)
+    """Return the process-lifetime Chroma collection singleton."""
+    global _client, _collection
+
+    if _collection is None:
+        with _collection_lock:
+            if _collection is None:
+                _client = chromadb.PersistentClient(path=str(db_dir))
+                _collection = _client.get_collection(collection_name)
+    return _collection
 
 
 def reset_collection(client: Any, collection_name: str) -> None:

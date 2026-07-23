@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import huggingface_hub
@@ -9,11 +10,22 @@ from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
 
 from nanobot.rag import config
 
+_embedding_model: Any | None = None
+_embedding_model_lock = Lock()
+
 
 def load_embedding_model() -> Any:
-    """Load the configured local embedding model, downloading it first if needed."""
-    ensure_model_downloaded()
-    return BGEM3FlagModel(str(config.MODEL_DIR), use_fp16=config.USE_FP16, device=config.DEVICE)
+    """Return the process-lifetime embedding model singleton."""
+    global _embedding_model
+
+    if _embedding_model is None:
+        with _embedding_model_lock:
+            if _embedding_model is None:
+                ensure_model_downloaded()
+                _embedding_model = BGEM3FlagModel(
+                    str(config.MODEL_DIR), use_fp16=config.USE_FP16, device=config.DEVICE
+                )
+    return _embedding_model
 
 
 def ensure_model_downloaded() -> None:
