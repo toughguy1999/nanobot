@@ -22,5 +22,19 @@ class TextChunk:
     text: str
     source_name: str
     source_path: Path
-    heading: str
     index: int
+
+    @property
+    def id(self) -> str:
+        """Stable vector-store id for this chunk."""
+        return f"{self.source_name}:chunk:{self.index:05d}"
+
+    @property
+    def metadata(self) -> dict[str, str | int]:
+        """Vector-store metadata for this chunk."""
+        return {
+            "source": self.source_name,
+            "source_path": str(self.source_path),
+            "chunk_index": self.index,
+            "chunk_size": len(self.text),
+        }

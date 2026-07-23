@@ -29,7 +29,9 @@ def test_scan_source_documents_only_includes_md_and_txt(tmp_path: Path):
     assert _scan_source_documents(tmp_path) == [md, txt]
 
 
-def test_initialize_result_contains_counts_and_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_initialize_result_contains_counts_and_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "novel.md").write_text("# 第一章\n\n误会开始了。", encoding="utf-8")
@@ -55,13 +57,15 @@ def test_initialize_result_contains_counts_and_paths(monkeypatch: pytest.MonkeyP
         PersistentClient = FakeClient
 
     class FakeModel:
-        def encode(self, texts: list[str], batch_size: int, max_length: int) -> dict[str, list[list[float]]]:
+        def encode(
+            self, texts: list[str], batch_size: int, max_length: int
+        ) -> dict[str, list[list[float]]]:
             return {"dense_vecs": [[1.0, 0.0] for _ in texts]}
 
     monkeypatch.setattr(config, "SOURCE_DIR", source_dir)
     monkeypatch.setattr(config, "DB_DIR", db_dir)
-    monkeypatch.setattr("nanobot.rag.service.chromadb.PersistentClient", FakeChroma.PersistentClient)
-    monkeypatch.setattr("nanobot.rag.service._load_embedding_model", lambda: FakeModel())
+    monkeypatch.setattr("nanobot.rag.store.chromadb.PersistentClient", FakeChroma.PersistentClient)
+    monkeypatch.setattr("nanobot.rag.embeddings.load_embedding_model", lambda: FakeModel())
 
     result = initialize_absurd_novel_knowledge_base()
 
