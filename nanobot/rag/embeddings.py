@@ -9,6 +9,7 @@ import huggingface_hub
 from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
 
 from nanobot.rag import config
+from nanobot.rag.types import SparseVector
 
 _embedding_model: Any | None = None
 _embedding_model_lock = Lock()
@@ -53,10 +54,28 @@ def has_local_model(model_dir: Path) -> bool:
     )
 
 
-def embed_texts(model: Any, texts: list[str], batch_size: int) -> list[list[float]]:
-    """Encode text into plain Python dense vectors."""
-    output = model.encode(texts, batch_size=batch_size, max_length=config.MAX_LENGTH)
-    dense_vectors = output["dense_vecs"] if isinstance(output, dict) else output
-    return [
-        vector.tolist() if hasattr(vector, "tolist") else list(vector) for vector in dense_vectors
+def embed_texts(
+    model: Any, texts: list[str], batch_size: int
+) -> tuple[list[list[float]], list[SparseVector]]:
+    """Encode text into plain Python dense and sparse vectors."""
+    output = model.encode(
+        texts,
+        batch_size=batch_size,
+        max_length=config.MAX_LENGTH,
+        return_dense=True,
+        return_sparse=True,
+        return_colbert_vecs=False,
+    )
+    dense_vectors = [
+        vector.tolist() if hasattr(vector, "tolist") else list(vector)
+        for vector in output["dense_vecs"]
     ]
+    sparse_vectors = [
+        {
+            int(token_id): float(weight)
+            for token_id, weight in lexical_weights.items()
+            if float(weight) > 0
+        }
+        for lexical_weights in output["lexical_weights"]
+    ]
+    return dense_vectors, sparse_vectors

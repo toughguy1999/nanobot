@@ -22,7 +22,7 @@ class AbsurdNovelKnowledgeSearchTool(Tool):
         return (
             "Search the local 荒诞小说集知识库. Use this when the user mentions "
             "荒诞小说集 and asks about its content, facts, plot, characters, chapters, "
-            "or wording. Returns only retrieved original text snippets."
+            "or wording."
         )
 
     @property

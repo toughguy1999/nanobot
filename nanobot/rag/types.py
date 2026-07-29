@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+SparseVector = dict[int, float]
+
 
 @dataclass(frozen=True)
 class RagInitResult:
@@ -38,3 +40,13 @@ class TextChunk:
             "chunk_index": self.index,
             "chunk_size": len(self.text),
         }
+
+
+@dataclass(frozen=True)
+class RetrievalCandidate:
+    """One ranked result returned by a retrieval branch."""
+
+    chunk_id: str
+    text: str
+    metadata: dict[str, str | int]
+    rank: int
