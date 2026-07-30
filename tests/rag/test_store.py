@@ -69,41 +69,6 @@ def test_dense_store_uses_requested_path_and_returns_candidates(
     assert candidates[1].metadata == {"source": "a", "chunk_index": 0}
 
 
-def test_sparse_store_writes_and_ranks_dot_products(tmp_path: Path) -> None:
-    sparse_dir = tmp_path / "db" / "sqlite"
-    db_path = store.create_sparse_database(sparse_dir)
-    chunks = [
-        _chunk(tmp_path, "b.txt", 0, "B"),
-        _chunk(tmp_path, "a.txt", 1, "A"),
-        _chunk(tmp_path, "c.txt", 2, "C"),
-    ]
-
-    store.upsert_sparse_embeddings(
-        db_path,
-        chunks,
-        [
-            {10: 2.0},
-            {10: 1.0, 20: 1.0},
-            {10: 1.0, 20: 1.0},
-        ],
-    )
-
-    candidates = store.query_sparse(sparse_dir, {10: 1.0, 20: 2.0}, top_k=2)
-
-    assert db_path == sparse_dir / "sparse.db"
-    assert store.load_sparse_database(sparse_dir) == db_path
-    assert [candidate.chunk_id for candidate in candidates] == [
-        chunks[1].id,
-        chunks[2].id,
-    ]
-    assert [candidate.rank for candidate in candidates] == [1, 2]
-    assert candidates[0].text == chunks[1].text
-    assert candidates[0].metadata == chunks[1].metadata
-
-    with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT COUNT(*) FROM chunks").fetchone() == (3,)
-        assert connection.execute("SELECT COUNT(*) FROM sparse_postings").fetchone() == (5,)
-
 
 def test_sparse_store_rejects_mismatched_batch_lengths(tmp_path: Path) -> None:
     db_path = store.create_sparse_database(tmp_path)

@@ -93,6 +93,7 @@ rag = [
     "flagembedding>=1.4.0",
     "sentencepiece>=0.2.0",
     "torch>=2.11.0",
+    "transformers>=4.44.2,<5",
 ]
 
 # uv dependency management and package sources

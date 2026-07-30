@@ -7,7 +7,7 @@ import time
 from typing import TypeVar
 
 from nanobot.rag import config, embeddings, indexing, store
-from nanobot.rag.rerank import weighted_rrf
+from nanobot.rag.rerank import rerank_candidates, weighted_rrf
 from nanobot.rag.types import RagInitResult
 
 T = TypeVar("T")
@@ -84,9 +84,18 @@ def query_absurd_novel_knowledge_base(query: str) -> list[str]:
         dense_weight=config.DENSE_WEIGHT,
         sparse_weight=config.SPARSE_WEIGHT,
         rrf_k=config.RRF_K,
-        top_k=config.TOP_K,
+        top_k=config.RRF_TOP_K,
     )
-    return [candidate.text for candidate in fused_candidates]
+    if not fused_candidates:
+        return []
+
+    try:
+        final_candidates = rerank_candidates(query, fused_candidates, config.TOP_K)
+    except Exception as exc:
+        logger.warning("RAG reranking failed; using RRF results: %s", exc)
+        final_candidates = fused_candidates[: config.TOP_K]
+
+    return [candidate.text for candidate in final_candidates]
 
 
 # Backwards-compatible private alias used by older tests and local scripts.

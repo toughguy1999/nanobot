@@ -5,6 +5,7 @@
 .codex
 docs/
 scripts/
+rag-test/
 openspec/
 uv.lock
 __pycache__/

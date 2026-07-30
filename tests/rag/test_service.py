@@ -101,11 +101,12 @@ def test_initialize_builds_dense_and_sparse_indexes_from_same_chunks(
     assert sorted(dense_ids) == sparse_ids
 
 
-def test_query_uses_branch_top_k_and_returns_fused_top_k(
+def test_query_uses_branch_top_k_and_reranks_fused_pool(
     monkeypatch: pytest.MonkeyPatch,
 ):
     encode_calls: list[list[str]] = []
     query_calls: list[tuple[str, int]] = []
+    rerank_calls: list[tuple[str, list[RetrievalCandidate], int]] = []
 
     class FakeModel:
         def encode(self, texts: list[str], **kwargs: Any) -> dict[str, Any]:
@@ -115,10 +116,10 @@ def test_query_uses_branch_top_k_and_returns_fused_top_k(
                 "lexical_weights": [{"1": 1.0}],
             }
 
-    dense = [_candidate(f"dense-{index}", f"D{index}", index + 1) for index in range(5)]
+    dense = [_candidate(f"dense-{index}", f"D{index}", index + 1) for index in range(20)]
     sparse = [
-        *[_candidate(f"sparse-{index}", f"S{index}", index + 1) for index in range(4)],
-        _candidate("dense-4", "D4", 5),
+        *[_candidate(f"sparse-{index}", f"S{index}", index + 1) for index in range(19)],
+        _candidate("dense-19", "D19", 20),
     ]
 
     monkeypatch.setattr("nanobot.rag.embeddings.load_embedding_model", lambda: FakeModel())
@@ -138,11 +139,25 @@ def test_query_uses_branch_top_k_and_returns_fused_top_k(
     monkeypatch.setattr("nanobot.rag.store.query_dense", fake_dense)
     monkeypatch.setattr("nanobot.rag.store.query_sparse", fake_sparse)
 
+    def fake_rerank(
+        query: str, candidates: list[RetrievalCandidate], top_k: int
+    ) -> list[RetrievalCandidate]:
+        rerank_calls.append((query, candidates, top_k))
+        return list(reversed(candidates))[:top_k]
+
+    monkeypatch.setattr("nanobot.rag.service.rerank_candidates", fake_rerank)
+
     result = query_absurd_novel_knowledge_base("  query  ")
 
     assert encode_calls == [["query"]]
-    assert query_calls == [("dense", 5), ("sparse", 5)]
-    assert result == ["D4", "D0", "S0"]
+    assert query_calls == [("dense", 20), ("sparse", 20)]
+    assert len(rerank_calls) == 1
+    assert rerank_calls[0][0] == "query"
+    assert len(rerank_calls[0][1]) == 20
+    assert rerank_calls[0][2] == 3
+    assert result == [
+        candidate.text for candidate in reversed(rerank_calls[0][1][-3:])
+    ]
 
 
 @pytest.mark.parametrize("failed_branch", ["dense", "sparse"])
@@ -169,6 +184,10 @@ def test_query_degrades_when_one_branch_fails(
 
     monkeypatch.setattr("nanobot.rag.store.query_dense", dense_query)
     monkeypatch.setattr("nanobot.rag.store.query_sparse", sparse_query)
+    monkeypatch.setattr(
+        "nanobot.rag.service.rerank_candidates",
+        lambda _query, candidates, top_k: candidates[:top_k],
+    )
 
     result = query_absurd_novel_knowledge_base("query")
 
@@ -188,8 +207,39 @@ def test_query_returns_empty_list_when_both_branches_have_no_candidates(
     monkeypatch.setattr("nanobot.rag.embeddings.load_embedding_model", lambda: FakeModel())
     monkeypatch.setattr("nanobot.rag.store.query_dense", lambda *_: [])
     monkeypatch.setattr("nanobot.rag.store.query_sparse", lambda *_: [])
+    monkeypatch.setattr(
+        "nanobot.rag.service.rerank_candidates",
+        lambda *_args: pytest.fail("reranker must not run without candidates"),
+    )
 
     assert query_absurd_novel_knowledge_base("query") == []
+
+
+def test_query_degrades_to_rrf_top_k_when_reranker_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class FakeModel:
+        def encode(self, _texts: list[str], **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "dense_vecs": [[1.0]],
+                "lexical_weights": [{"1": 1.0}],
+            }
+
+    dense = [
+        _candidate(f"dense-{index}", f"D{index}", index + 1) for index in range(5)
+    ]
+    monkeypatch.setattr("nanobot.rag.embeddings.load_embedding_model", lambda: FakeModel())
+    monkeypatch.setattr("nanobot.rag.store.query_dense", lambda *_args: dense)
+    monkeypatch.setattr("nanobot.rag.store.query_sparse", lambda *_args: [])
+    monkeypatch.setattr(
+        "nanobot.rag.service.rerank_candidates",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("reranker unavailable")),
+    )
+
+    result = query_absurd_novel_knowledge_base("query")
+
+    assert result == ["D0", "D1", "D2"]
+    assert "RAG reranking failed; using RRF results: reranker unavailable" in caplog.text
 
 
 def test_query_empty_query_fails():
