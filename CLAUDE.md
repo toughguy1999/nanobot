@@ -12,3 +12,5 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Architecture
 需要了解项目架构，阅读@docs\architecture.md
+
+

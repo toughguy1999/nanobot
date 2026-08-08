@@ -234,6 +234,20 @@ class ToolsConfig(BaseModel):
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
 
 
+class MCPServerConfig(BaseModel):
+    """Configuration for one local stdio MCP server."""
+
+    name: str
+    path: str
+    enabled: bool = True
+
+
+class MCPConfig(BaseModel):
+    """Configuration for local MCP servers."""
+
+    servers: list[MCPServerConfig] = Field(default_factory=list)
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -241,6 +255,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
 
 
     def _match_provider(self, model: str | None = None) -> tuple["ProviderConfig | None", str | None]:

@@ -3,9 +3,11 @@
 .nanobot
 .agents
 .codex
-docs/
+docs/*
+!docs/architecture.md
 scripts/
 rag_test/
+!rag_test/source
 mcp_test/
 openspec/
 uv.lock

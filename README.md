@@ -656,6 +656,29 @@ That's it! Environment variables, model prefixing, config matching, and `nanobot
 </details>
 
 
+### Local MCP tools
+
+Add local Python MCP servers under the top-level `mcp.servers` key:
+
+```json
+{
+  "mcp": {
+    "servers": [
+      {
+        "name": "weather",
+        "path": "mcp_test/server.py",
+        "enabled": true
+      }
+    ]
+  }
+}
+```
+
+Server names must start with a lowercase letter, contain only lowercase letters, digits, and underscores, and be no longer than 32 characters. `path` must be a relative path to an existing `.py` file inside `NANOBOT_HOME` (by default your home directory); absolute paths and paths that resolve outside that directory are rejected. Treat configured MCP servers as trusted local code because nanobot starts them with its current Python interpreter.
+
+Restart `nanobot agent` or `nanobot gateway` after changing MCP configuration. The first version supports local stdio `tools` only. It does not support remote transports, resources, prompts, sampling, roots, server-instruction injection, hot reload, automatic restart/reconnect, or image/audio/embedded-resource results.
+
+
 ### Security
 
 > For production deployments, set `"restrictToWorkspace": true` in your config to sandbox the agent.

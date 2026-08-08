@@ -6,7 +6,8 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 # Backend(Python)
 - 使用uv管理python库，不要直接使用pip
-- 修改代码后，自行判断是否需要通过ruff、mypy、pytest检验
+- 修改代码后，自行判断是否需要通过ruff、mypy检验
+
 # Frontend
 - 项目位于/web下
 - 使用pnpm管理依赖，不要使用npm

@@ -3,7 +3,6 @@
 import asyncio
 import os
 import select
-import signal
 import sys
 from pathlib import Path
 
@@ -340,12 +339,14 @@ def gateway(
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
+    from nanobot.agent.tools.mcp import MCPTool
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
     from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
+    from nanobot.mcp.manager import MCPManager
     from nanobot.session.manager import SessionManager
 
     if verbose:
@@ -423,6 +424,13 @@ def gateway(
     console.print("[green]OK[/green] Heartbeat: every 30m")
 
     async def run():
+        manager = MCPManager(config.mcp.servers)
+
+        def register_mcp_tools(descriptors):
+            for descriptor in descriptors:
+                agent.tools.register(MCPTool(descriptor, manager))
+
+        manager.start_background(register_mcp_tools)
         try:
             await cron.start()
             await heartbeat.start()
@@ -436,6 +444,8 @@ def gateway(
             cron.stop()
             agent.stop()
             await channels.stop_all()
+        finally:
+            await manager.close()
 
     asyncio.run(run())
 
@@ -458,8 +468,10 @@ def agent(
     from loguru import logger
 
     from nanobot.agent.loop import AgentLoop
+    from nanobot.agent.tools.mcp import MCPTool
     from nanobot.bus.queue import MessageBus
     from nanobot.config.loader import load_config
+    from nanobot.mcp.manager import MCPManager
 
     config = load_config()
 
@@ -491,27 +503,26 @@ def agent(
         # Animated spinner is safe to use with prompt_toolkit input handling
         return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
 
-    if message:
-        # Single message mode
-        async def run_once():
-            with _thinking_ctx():
-                response = await agent_loop.process_direct(message, session_id)
-            _print_agent_response(response, render_markdown=markdown)
-
-        asyncio.run(run_once())
-    else:
+    if not message:
         # Interactive mode
         _init_prompt_session()
         console.print(f"{_APP_LABEL} Interactive mode (type [bold]exit[/bold] or [bold]Ctrl+C[/bold] to quit)\n")
 
-        def _exit_on_sigint(signum, frame):
-            _restore_terminal()
-            console.print("\nGoodbye!")
-            os._exit(0)
+    async def run_agent():
+        manager = MCPManager(config.mcp.servers)
 
-        signal.signal(signal.SIGINT, _exit_on_sigint)
+        def register_mcp_tools(descriptors):
+            for descriptor in descriptors:
+                agent_loop.tools.register(MCPTool(descriptor, manager))
 
-        async def run_interactive():
+        manager.start_background(register_mcp_tools)
+        try:
+            if message:
+                with _thinking_ctx():
+                    response = await agent_loop.process_direct(message, session_id)
+                _print_agent_response(response, render_markdown=markdown)
+                return
+
             while True:
                 try:
                     _flush_pending_tty_input()
@@ -536,8 +547,10 @@ def agent(
                     _restore_terminal()
                     console.print("\nGoodbye!")
                     break
+        finally:
+            await manager.close()
 
-        asyncio.run(run_interactive())
+    asyncio.run(run_agent())
 
 
 # ============================================================================
