@@ -3,7 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -23,7 +23,7 @@ from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessag
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 from nanobot.session.history import to_memory_transcript, trim_boundary
-from nanobot.session.manager import SessionManager
+from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ExecToolConfig
@@ -153,7 +153,13 @@ class AgentLoop:
         self._running = False
         logger.info("Agent loop stopping")
 
-    async def _process_message(self, msg: InboundMessage, session_key: str | None = None) -> OutboundMessage | None:
+    async def _process_message(
+        self,
+        msg: InboundMessage,
+        session_key: str | None = None,
+        *,
+        emit_events: bool = True,
+    ) -> OutboundMessage | None:
         """
         Process a single inbound message.
 
@@ -167,7 +173,7 @@ class AgentLoop:
         # Handle system messages (subagent announces)
         # The chat_id contains the original "channel:chat_id" to route back to
         if msg.channel == "system":
-            return await self._process_system_message(msg)
+            return await self._process_system_message(msg, emit_events=emit_events)
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info(f"Processing message from {msg.channel}:{msg.sender_id}: {preview}")
@@ -228,93 +234,22 @@ class AgentLoop:
             chat_id=msg.chat_id,
         )
 
-        # Agent loop
-        iteration = 0
-        final_content = None
-
-        while iteration < self.max_iterations:
-            iteration += 1
-
-            try:
-                response = await self.provider.chat(
-                    messages=messages,
-                    tools=self.tools.get_definitions(),
-                    model=self.model
-                )
-            except Exception as exc:
-                final_content = f"Sorry, I encountered an error: {str(exc)}"
-                break
-
-            # Handle tool calls
-            if response.has_tool_calls:
-                # Add assistant message with tool calls
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments)  # Must be JSON string
-                        }
-                    }
-                    for tc in response.tool_calls
-                ]
-                messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts,
-                    reasoning_content=response.reasoning_content,
-                )
-                for tool_call in response.tool_calls:
-                    record = session.add_tool_call(
-                        id=tool_call.id,
-                        name=tool_call.name,
-                        arguments=tool_call.arguments,
-                        content=response.content or "",
-                    )
-                    self.sessions.append(session, record)
-
-                # Execute tools
-                for tool_call in response.tool_calls:
-                    args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
-                    logger.info(f"Tool result: {tool_call.name}({result})")
-                    record = session.add_tool_result(
-                        tool_call_id=tool_call.id,
-                        name=tool_call.name,
-                        content=result,
-                    )
-                    self.sessions.append(session, record)
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
-                    )
-                # Interleaved CoT: reflect before next action
-                messages.append({"role": "user", "content": "Reflect on the results and decide next steps."})
-            else:
-                # No tool calls, we're done
-                final_content = response.content
-                break
-
-        if final_content is None:
-            if iteration >= self.max_iterations:
-                final_content = f"Reached {self.max_iterations} iterations without completion."
-            else:
-                final_content = "I've completed processing but have no response to give."
-
-        # Log response preview
-        preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
-        logger.info(f"Response to {msg.channel}:{msg.sender_id}: {preview}")
-
-        assistant_record = session.add_assistant_message(final_content)
-        self.sessions.append(session, assistant_record)
-
-        return OutboundMessage(
+        return await self._run_turn(
+            session=session,
+            messages=messages,
             channel=msg.channel,
             chat_id=msg.chat_id,
-            content=final_content,
-            metadata=msg.metadata or {},  # Pass through for channel-specific needs (e.g. Slack thread_ts)
+            metadata=msg.metadata or {},
+            emit_events=emit_events,
+            empty_response="I've completed processing but have no response to give.",
         )
 
-    async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
+    async def _process_system_message(
+        self,
+        msg: InboundMessage,
+        *,
+        emit_events: bool = True,
+    ) -> OutboundMessage | None:
         """
         Process a system message (e.g., subagent announce).
 
@@ -359,77 +294,140 @@ class AgentLoop:
             chat_id=origin_chat_id,
         )
 
-        # Agent loop (limited for announce handling)
-        iteration = 0
-        final_content = None
+        return await self._run_turn(
+            session=session,
+            messages=messages,
+            channel=origin_channel,
+            chat_id=origin_chat_id,
+            emit_events=emit_events,
+            empty_response="Background task completed.",
+        )
 
-        while iteration < self.max_iterations:
-            iteration += 1
-
+    async def _run_turn(
+        self,
+        *,
+        session: Session,
+        messages: list[dict[str, Any]],
+        channel: str,
+        chat_id: str,
+        emit_events: bool,
+        empty_response: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> OutboundMessage:
+        """Run the shared role-based assistant/tool state machine."""
+        for _ in range(self.max_iterations):
             try:
                 response = await self.provider.chat(
                     messages=messages,
                     tools=self.tools.get_definitions(),
-                    model=self.model
+                    model=self.model,
                 )
             except Exception as exc:
-                final_content = f"Sorry, I encountered an error: {str(exc)}"
-                break
-
-            if response.has_tool_calls:
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments)
-                        }
-                    }
-                    for tc in response.tool_calls
-                ]
-                messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts,
-                    reasoning_content=response.reasoning_content,
+                return self._persist_final(
+                    session=session,
+                    channel=channel,
+                    chat_id=chat_id,
+                    content=f"Sorry, I encountered an error: {str(exc)}",
+                    metadata=metadata,
                 )
-                for tool_call in response.tool_calls:
-                    record = session.add_tool_call(
-                        id=tool_call.id,
-                        name=tool_call.name,
-                        arguments=tool_call.arguments,
+
+            tool_calls = [
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.name,
+                        "arguments": tool_call.raw_arguments,
+                    },
+                }
+                for tool_call in response.tool_calls
+            ]
+            assistant_record = session.add_assistant_message(
+                response.content or "",
+                reasoning_content=response.reasoning_content,
+                tool_calls=tool_calls,
+            )
+            self.sessions.append(session, assistant_record)
+            self.context.add_assistant_message(
+                messages,
+                response.content,
+                tool_calls,
+                reasoning_content=response.reasoning_content,
+            )
+
+            if not response.has_tool_calls:
+                content = response.content or empty_response
+                if content != assistant_record["content"]:
+                    assistant_record["content"] = content
+                    self.sessions.save(session)
+                return OutboundMessage(
+                    channel=channel,
+                    chat_id=chat_id,
+                    content=content,
+                    kind="assistant_final",
+                    assistant_record=assistant_record,
+                    metadata=metadata or {},
+                )
+
+            if emit_events:
+                await self.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=channel,
+                        chat_id=chat_id,
                         content=response.content or "",
+                        kind="assistant_stage",
+                        assistant_record=assistant_record,
+                        metadata=metadata or {},
                     )
-                    self.sessions.append(session, record)
+                )
 
-                for tool_call in response.tool_calls:
-                    args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
-                    logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
+            for tool_call in response.tool_calls:
+                args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+                logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
+                try:
                     result = await self.tools.execute(tool_call.name, tool_call.arguments)
-                    record = session.add_tool_result(
-                        tool_call_id=tool_call.id,
-                        name=tool_call.name,
-                        content=result,
-                    )
-                    self.sessions.append(session, record)
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
-                    )
-                # Interleaved CoT: reflect before next action
-                messages.append({"role": "user", "content": "Reflect on the results and decide next steps."})
-            else:
-                final_content = response.content
-                break
+                except Exception as exc:
+                    result = f"Error executing {tool_call.name}: {str(exc)}"
+                logger.info(f"Tool result: {tool_call.name}({result})")
+                tool_record = session.add_tool_result(
+                    tool_call_id=tool_call.id,
+                    name=tool_call.name,
+                    content=result,
+                )
+                self.sessions.append(session, tool_record)
+                self.context.add_tool_result(
+                    messages,
+                    tool_call.id,
+                    tool_call.name,
+                    result,
+                )
 
-        if final_content is None:
-            final_content = "Background task completed."
+        return self._persist_final(
+            session=session,
+            channel=channel,
+            chat_id=chat_id,
+            content=f"Reached {self.max_iterations} iterations without completion.",
+            metadata=metadata,
+        )
 
-        assistant_record = session.add_assistant_message(final_content)
-        self.sessions.append(session, assistant_record)
-
+    def _persist_final(
+        self,
+        *,
+        session: Session,
+        channel: str,
+        chat_id: str,
+        content: str,
+        metadata: dict[str, Any] | None,
+    ) -> OutboundMessage:
+        record = session.add_assistant_message(content)
+        self.sessions.append(session, record)
         return OutboundMessage(
-            channel=origin_channel,
-            chat_id=origin_chat_id,
-            content=final_content
+            channel=channel,
+            chat_id=chat_id,
+            content=content,
+            kind="assistant_final",
+            assistant_record=record,
+            metadata=metadata or {},
         )
 
     async def _consolidate_memory(self, session, archive_all: bool = False) -> None:
@@ -522,15 +520,16 @@ Respond with ONLY valid JSON, no markdown fences."""
             content=content
         )
 
-        response = await self._process_message(msg, session_key=session_key)
+        response = await self._process_message(
+            msg,
+            session_key=session_key,
+            emit_events=False,
+        )
         return response.content if response else ""
 
 
 def _history_record_key(record: dict) -> tuple[str, str]:
-    record_type = str(record.get("_type", ""))
-    if record_type == "tool_result":
-        return (record_type, str(record.get("tool_call_id", "")))
-    return (record_type, str(record.get("id", "")))
+    return (str(record.get("role", "")), str(record.get("id", "")))
 
 
 def _attachment_history_metadata(attachments: list[InboundAttachment]) -> list[dict[str, object]]:

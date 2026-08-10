@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AssistantMessageEvent, Session } from "../model/chat.types";
+import type { ChatServerEvent, Session } from "../model/chat.types";
 import {
   createUploadingAttachment,
   DEFAULT_ATTACHMENT_PROMPT,
@@ -12,9 +12,11 @@ import { createMessage } from "../model/message";
 import {
   appendMessageToSession,
   createSession,
+  mergeLoadedSession,
   mergeSessionSummary,
   removeSessionAndSelectNext,
-  sortSessions
+  sortSessions,
+  upsertMessageToSession
 } from "../model/session";
 import {
   checkServerStatus,
@@ -71,14 +73,16 @@ export function useChatController() {
     }
   }, [recoveryError]);
 
-  const handleAssistantMessage = useCallback((message: AssistantMessageEvent) => {
+  const handleAssistantMessage = useCallback((event: ChatServerEvent) => {
     setSessions((currentSessions) =>
       sortSessions(
-        appendMessageToSession(
-          currentSessions,
-          message.sessionId,
-          createMessage("assistant", message.content)
-        )
+        "type" in event
+          ? upsertMessageToSession(currentSessions, event.sessionId, event.message)
+          : appendMessageToSession(
+              currentSessions,
+              event.sessionId,
+              createMessage("assistant", event.content)
+            )
       )
     );
   }, []);
@@ -140,7 +144,9 @@ export function useChatController() {
         setSessions((currentSessions) =>
           sortSessions(
             currentSessions.map((session) =>
-              session.id === loadedSession.id ? loadedSession : session
+              session.id === loadedSession.id
+                ? mergeLoadedSession(session, loadedSession)
+                : session
             )
           )
         );
@@ -195,7 +201,9 @@ export function useChatController() {
       setSessions((currentSessions) =>
         sortSessions(
           currentSessions.map((currentSession) =>
-            currentSession.id === session.id ? session : currentSession
+            currentSession.id === session.id
+              ? mergeLoadedSession(currentSession, session)
+              : currentSession
           )
         )
       );

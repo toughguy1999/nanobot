@@ -21,6 +21,12 @@ export type DraftAttachment = ChatAttachment & {
 
 export type ChatMessageMetadata = Record<string, unknown>;
 
+export type ToolCallView = {
+  id: string;
+  name: string;
+  arguments: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: ChatRole;
@@ -28,6 +34,8 @@ export type ChatMessage = {
   createdAt: string;
   attachments?: ChatAttachment[];
   metadata?: ChatMessageMetadata;
+  reasoningContent?: string;
+  toolCalls?: ToolCallView[];
 };
 
 export type SessionSummary = {
@@ -45,9 +53,23 @@ export type Session = SessionSummary & {
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
-export type AssistantMessageEvent = {
+export type ActiveMessageEvent = {
   sessionId: string;
   content: string;
 };
 
-export type ServerMessage = AssistantMessageEvent | { error: string };
+export type AssistantStageEvent = {
+  type: "assistant_stage";
+  sessionId: string;
+  message: ChatMessage;
+};
+
+export type AssistantFinalEvent = {
+  type: "assistant_final";
+  sessionId: string;
+  message: ChatMessage;
+};
+
+export type ChatServerEvent = ActiveMessageEvent | AssistantStageEvent | AssistantFinalEvent;
+
+export type ServerMessage = ChatServerEvent | { error: string };

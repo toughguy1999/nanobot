@@ -39,6 +39,25 @@ export function parseServerMessage(rawValue: string): ServerMessage {
   }
 
   if (
+    "type" in data &&
+    (data.type === "assistant_stage" || data.type === "assistant_final") &&
+    "sessionId" in data &&
+    typeof data.sessionId === "string" &&
+    "message" in data &&
+    isAssistantMessage(data.message)
+  ) {
+    return {
+      type: data.type,
+      sessionId: data.sessionId,
+      message: data.message
+    };
+  }
+
+  if ("type" in data) {
+    return { error: "服务端返回了无法识别的消息" };
+  }
+
+  if (
     "sessionId" in data &&
     typeof data.sessionId === "string" &&
     "content" in data &&
@@ -49,3 +68,41 @@ export function parseServerMessage(rawValue: string): ServerMessage {
 
   return { error: "服务端返回了无法识别的消息" };
 }
+
+function isAssistantMessage(value: unknown): value is ServerAssistantMessage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const message = value as Record<string, unknown>;
+  if (
+    typeof message.id !== "string" ||
+    message.role !== "assistant" ||
+    typeof message.content !== "string" ||
+    typeof message.createdAt !== "string"
+  ) {
+    return false;
+  }
+  if (message.reasoningContent !== undefined && typeof message.reasoningContent !== "string") {
+    return false;
+  }
+  if (message.toolCalls !== undefined) {
+    if (!Array.isArray(message.toolCalls) || !message.toolCalls.every(isToolCallView)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isToolCallView(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const toolCall = value as Record<string, unknown>;
+  return (
+    typeof toolCall.id === "string" &&
+    typeof toolCall.name === "string" &&
+    typeof toolCall.arguments === "string"
+  );
+}
+
+type ServerAssistantMessage = Extract<ServerMessage, { type: "assistant_stage" }>["message"];

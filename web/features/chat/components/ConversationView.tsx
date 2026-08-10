@@ -2,7 +2,9 @@ import { Bot, UserRound } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { Session } from "../model/chat.types";
+import { AssistantMessage } from "./AssistantMessage";
 import { AttachmentList } from "./AttachmentList";
+import { MarkdownContent } from "./MarkdownContent";
 
 type ConversationViewProps = {
   session: Session | null;
@@ -40,7 +42,11 @@ export function ConversationView({ session }: ConversationViewProps) {
                   )}
                 >
                   <AttachmentList attachments={attachments} className={attachments.length > 0 ? "mb-2" : ""} />
-                  <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                  {isUser ? (
+                    <MarkdownContent content={message.content} variant="user" />
+                  ) : (
+                    <AssistantMessage message={message} />
+                  )}
                 </div>
                 {isUser ? (
                   <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--accent)/0.14)] text-[hsl(var(--accent))]">

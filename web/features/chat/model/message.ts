@@ -23,3 +23,22 @@ export function createMessage(
     ...(metadata ? { metadata } : {})
   };
 }
+
+export function mergeChatMessage(current: ChatMessage, incoming: ChatMessage): ChatMessage {
+  return {
+    ...current,
+    ...incoming,
+    ...(incoming.attachments ?? current.attachments
+      ? { attachments: incoming.attachments ?? current.attachments }
+      : {}),
+    ...(incoming.metadata ?? current.metadata
+      ? { metadata: incoming.metadata ?? current.metadata }
+      : {}),
+    ...(incoming.reasoningContent ?? current.reasoningContent
+      ? { reasoningContent: incoming.reasoningContent ?? current.reasoningContent }
+      : {}),
+    ...(incoming.toolCalls ?? current.toolCalls
+      ? { toolCalls: incoming.toolCalls ?? current.toolCalls }
+      : {})
+  };
+}

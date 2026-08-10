@@ -18,6 +18,11 @@ class BaseChannel(ABC):
     """
 
     name: str = "base"
+    supported_outbound_kinds = frozenset({"message", "assistant_final"})
+
+    def supports_outbound_kind(self, kind: str) -> bool:
+        """Return whether this transport can consume an outbound event kind."""
+        return kind in self.supported_outbound_kinds
 
     def __init__(self, config: Any, bus: MessageBus):
         """

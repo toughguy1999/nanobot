@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type {
-  AssistantMessageEvent,
+  ChatServerEvent,
   ChatAttachment,
   ConnectionStatus,
   DraftAttachment
@@ -15,7 +15,7 @@ import {
 
 type UseChatWebSocketOptions = {
   enabled: boolean;
-  onMessage: (message: AssistantMessageEvent) => void;
+  onMessage: (message: ChatServerEvent) => void;
   onError: (message: string) => void;
 };
 

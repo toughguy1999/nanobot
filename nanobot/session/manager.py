@@ -1,6 +1,7 @@
-"""Session management for conversation history."""
+"""Session management for role-based conversation history."""
 
 import json
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -9,71 +10,52 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.session.history import to_llm_messages, validate_history_record
+from nanobot.session.history import to_llm_messages, trim_boundary, validate_history_record
 from nanobot.utils.helpers import PROJECT_ROOT, ensure_dir, safe_filename
 
 
 @dataclass
 class Session:
-    """
-    A conversation session.
+    """A conversation session persisted as metadata plus role records."""
 
-    Stores messages in JSONL format for easy reading and persistence.
-    """
-
-    key: str  # channel:chat_id
+    key: str
     messages: list[dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def add_message(self, role: str, content: str | list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
-        """Add a conversational message to the session."""
-        msg = {
-            "_type": "message",
+    def add_message(
+        self,
+        role: str,
+        content: str | list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        record = {
             "id": f"msg_{uuid.uuid4().hex}",
             "role": role,
             "content": content,
             "created_at": datetime.now().isoformat(),
-            **kwargs
+            **kwargs,
         }
-        self.messages.append(msg)
-        self.updated_at = datetime.now()
-        return msg
-
-    def add_user_message(self, content: str | list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
-        """Append a user message record."""
-        return self.add_message("user", content, **kwargs)
-
-    def add_assistant_message(self, content: str, **kwargs: Any) -> dict[str, Any]:
-        """Append an assistant message record."""
-        return self.add_message("assistant", content, **kwargs)
-
-    def add_system_message(self, content: str, **kwargs: Any) -> dict[str, Any]:
-        """Append a session-local system message record."""
-        return self.add_message("system", content, **kwargs)
-
-    def add_tool_call(
-        self,
-        *,
-        id: str,
-        name: str,
-        arguments: str | dict[str, Any],
-        content: str = "",
-    ) -> dict[str, Any]:
-        """Append a tool call record."""
-        args = arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
-        record = {
-            "_type": "tool_call",
-            "id": id,
-            "type": "function",
-            "function": {"name": name, "arguments": args},
-            "content": content,
-            "created_at": datetime.now().isoformat(),
-        }
+        validate_history_record(record)
         self.messages.append(record)
         self.updated_at = datetime.now()
         return record
+
+    def add_user_message(
+        self, content: str | list[dict[str, Any]], **kwargs: Any
+    ) -> dict[str, Any]:
+        return self.add_message("user", content, **kwargs)
+
+    def add_assistant_message(self, content: str, **kwargs: Any) -> dict[str, Any]:
+        if not kwargs.get("reasoning_content"):
+            kwargs.pop("reasoning_content", None)
+        if not kwargs.get("tool_calls"):
+            kwargs.pop("tool_calls", None)
+        return self.add_message("assistant", content, **kwargs)
+
+    def add_system_message(self, content: str, **kwargs: Any) -> dict[str, Any]:
+        return self.add_message("system", content, **kwargs)
 
     def add_tool_result(
         self,
@@ -82,216 +64,151 @@ class Session:
         name: str,
         content: str,
     ) -> dict[str, Any]:
-        """Append a tool result record."""
-        record = {
-            "_type": "tool_result",
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "name": name,
-            "content": content,
-            "created_at": datetime.now().isoformat(),
-        }
-        self.messages.append(record)
-        self.updated_at = datetime.now()
-        return record
+        return self.add_message(
+            "tool",
+            content,
+            tool_call_id=tool_call_id,
+            name=name,
+        )
 
     def get_llm_history(self, max_messages: int = 50) -> list[dict[str, Any]]:
-        """
-        Get provider-formatted history for LLM context.
-
-        Args:
-            max_messages: Maximum canonical records to include.
-
-        Returns:
-            List of provider messages.
-        """
-        recent = self.messages[-max_messages:] if len(self.messages) > max_messages else self.messages
-        return to_llm_messages(recent)
+        """Return at most the requested canonical suffix, expanded to a complete stage."""
+        return to_llm_messages(trim_boundary(self.messages, max_messages))
 
     def clear(self) -> None:
-        """Clear all messages in the session."""
         self.messages = []
         self.updated_at = datetime.now()
 
 
 class SessionManager:
-    """
-    Manages conversation sessions.
+    """Manages JSONL conversation sessions."""
 
-    Sessions are stored as JSONL files in the sessions directory.
-    """
-
-    def __init__(self):
+    def __init__(self) -> None:
         self.sessions_dir = ensure_dir(PROJECT_ROOT / ".nanobot" / "sessions")
         self._cache: dict[str, Session] = {}
 
     def _get_session_path(self, key: str) -> Path:
-        """Get the file path for a session."""
         safe_key = safe_filename(key.replace(":", "_"))
         return self.sessions_dir / f"{safe_key}.jsonl"
 
     def get_or_create(self, key: str) -> Session:
-        """
-        Get an existing session or create a new one.
-
-        Args:
-            key: Session key (usually channel:chat_id).
-
-        Returns:
-            The session.
-        """
-        # Check cache
         if key in self._cache:
             return self._cache[key]
-
-        # Try to load from disk
         session = self._load(key)
         if session is None:
             session = Session(key=key)
-
         self._cache[key] = session
         return session
 
     def _load(self, key: str) -> Session | None:
-        """Load a session from disk."""
         path = self._get_session_path(key)
-
         if not path.exists():
             return None
 
         try:
-            messages = []
-            metadata = {}
-            created_at = None
-            updated_at = None
-
-            with open(path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    data = json.loads(line)
-
-                    if data.get("_type") == "metadata":
-                        metadata = data.get("metadata", {})
-                        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
-                        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None
-                    else:
-                        messages.append(dict(validate_history_record(data)))
-
+            with path.open(encoding="utf-8") as file:
+                lines = [line.strip() for line in file if line.strip()]
+            if not lines:
+                raise ValueError("session metadata line is missing")
+            metadata_record = _validate_metadata_record(json.loads(lines[0]))
+            messages = [dict(validate_history_record(json.loads(line))) for line in lines[1:]]
+            created_at = datetime.fromisoformat(metadata_record["created_at"])
             return Session(
                 key=key,
                 messages=messages,
-                created_at=created_at or datetime.now(),
-                updated_at=updated_at or created_at or datetime.now(),
-                metadata=metadata
+                created_at=created_at,
+                updated_at=datetime.fromtimestamp(path.stat().st_mtime),
+                metadata=dict(metadata_record["metadata"]),
             )
-        except Exception as e:
-            logger.warning(f"Failed to load session {key}: {e}")
-            return None
+        except Exception as exc:
+            logger.warning(f"Failed to load session {key}: {exc}")
+            raise ValueError(f"invalid session file for {key}: {exc}") from exc
 
     def get(self, key: str, refresh: bool = False) -> Session | None:
-        """Get an existing session without creating it."""
         if not refresh and key in self._cache:
             return self._cache[key]
-
         session = self._load(key)
         if session is not None:
             self._cache[key] = session
         return session
 
     def save(self, session: Session) -> None:
-        """Save a session to disk."""
+        """Atomically replace a complete session file."""
         ensure_dir(self.sessions_dir)
         path = self._get_session_path(session.key)
+        temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        metadata_record = {
+            "created_at": session.created_at.isoformat(),
+            "metadata": session.metadata,
+        }
+        _validate_metadata_record(metadata_record)
+        for message in session.messages:
+            validate_history_record(message)
 
-        with open(path, "w") as f:
-            # Write metadata first
-            metadata_line = {
-                "_type": "metadata",
-                "created_at": session.created_at.isoformat(),
-                "updated_at": session.updated_at.isoformat(),
-                "metadata": session.metadata
-            }
-            f.write(json.dumps(metadata_line) + "\n")
-
-            # Write messages
-            for msg in session.messages:
-                f.write(json.dumps(msg) + "\n")
-
+        try:
+            with temp_path.open("w", encoding="utf-8", newline="\n") as file:
+                file.write(json.dumps(metadata_record, ensure_ascii=False) + "\n")
+                for message in session.messages:
+                    file.write(json.dumps(message, ensure_ascii=False) + "\n")
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temp_path, path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+        session.updated_at = datetime.fromtimestamp(path.stat().st_mtime)
         self._cache[session.key] = session
 
     def append(self, session: Session, record: dict[str, Any]) -> None:
-        """Append one canonical history record to disk and cache."""
+        """Append exactly one validated role record."""
+        validate_history_record(record)
         ensure_dir(self.sessions_dir)
         path = self._get_session_path(session.key)
         if not path.exists():
-            self.save(Session(
-                key=session.key,
-                messages=[],
-                created_at=session.created_at,
-                updated_at=session.updated_at,
-                metadata=session.metadata,
-            ))
-
-        with open(path, "a") as f:
-            f.write(json.dumps(record) + "\n")
-
-        session.updated_at = datetime.now()
+            self.save(
+                Session(
+                    key=session.key,
+                    created_at=session.created_at,
+                    updated_at=session.updated_at,
+                    metadata=session.metadata,
+                )
+            )
+        with path.open("a", encoding="utf-8", newline="\n") as file:
+            file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        session.updated_at = datetime.fromtimestamp(path.stat().st_mtime)
         self._cache[session.key] = session
 
     def ensure_session_title(self, key: str) -> str | None:
-        """Backfill a web session title from its first user message if needed."""
         session = self.get(key, refresh=True)
         if session is None or session.metadata.get("sessionTitle"):
             return session.metadata.get("sessionTitle") if session else None
-
-        first_user_message = next(
+        first_user = next(
             (
-                message
-                for message in session.messages
-                if (
-                    message.get("_type") == "message"
-                    and message.get("role") == "user"
-                    and message.get("content")
-                )
+                record
+                for record in session.messages
+                if record.get("role") == "user" and record.get("content")
             ),
             None,
         )
-        if not first_user_message:
+        if first_user is None:
             return None
-
-        title = str(first_user_message["content"])
+        title = _display_text(first_user["content"])
+        if not title:
+            return None
         session.metadata["sessionTitle"] = title
         self.save(session)
         return title
 
     def update_metadata(self, key: str, updates: dict[str, Any]) -> Session | None:
-        """Update metadata for an existing session."""
         session = self.get(key, refresh=True)
         if session is None:
             return None
-
         session.metadata.update(updates)
-        session.updated_at = datetime.now()
         self.save(session)
         return session
 
     def delete(self, key: str) -> bool:
-        """
-        Delete a session.
-
-        Args:
-            key: Session key.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        # Remove from cache
         self._cache.pop(key, None)
-
-        # Remove file
         path = self._get_session_path(key)
         if path.exists():
             path.unlink()
@@ -303,50 +220,35 @@ class SessionManager:
         channel: str | None = None,
         backfill_session_title: bool = False,
     ) -> list[dict[str, Any]]:
-        """
-        List all sessions.
-
-        Args:
-            channel: Optional channel filter.
-            backfill_session_title: Populate missing sessionTitle from first user message.
-
-        Returns:
-            List of session info dicts.
-        """
-        sessions = []
-
+        sessions: list[dict[str, Any]] = []
         for path in self.sessions_dir.glob("*.jsonl"):
             try:
-                # Read just the metadata line
-                with open(path) as f:
-                    first_line = f.readline().strip()
-                    if first_line:
-                        data = json.loads(first_line)
-                        if data.get("_type") == "metadata":
-                            key = path.stem.replace("_", ":", 1)
-                            if channel and not key.startswith(f"{channel}:"):
-                                continue
-
-                            metadata = data.get("metadata", {})
-                            if (
-                                backfill_session_title
-                                and key.startswith("web:")
-                                and not metadata.get("sessionTitle")
-                            ):
-                                title = self.ensure_session_title(key)
-                                if title:
-                                    metadata = {**metadata, "sessionTitle": title}
-
-                            sessions.append({
-                                "key": key,
-                                "created_at": data.get("created_at"),
-                                "updated_at": data.get("updated_at"),
-                                "metadata": metadata,
-                                "path": str(path)
-                            })
-            except Exception:
-                continue
-
+                with path.open(encoding="utf-8") as file:
+                    first_line = next((line.strip() for line in file if line.strip()), "")
+                if not first_line:
+                    raise ValueError("session metadata line is missing")
+                data = _validate_metadata_record(json.loads(first_line))
+                key = path.stem.replace("_", ":", 1)
+                if channel and not key.startswith(f"{channel}:"):
+                    continue
+                metadata = dict(data["metadata"])
+                if (
+                    backfill_session_title
+                    and key.startswith("web:")
+                    and not metadata.get("sessionTitle")
+                ):
+                    title = self.ensure_session_title(key)
+                    if title:
+                        metadata["sessionTitle"] = title
+                sessions.append({
+                    "key": key,
+                    "created_at": data["created_at"],
+                    "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                    "metadata": metadata,
+                    "path": str(path),
+                })
+            except Exception as exc:
+                logger.warning(f"Skipping invalid session file {path}: {exc}")
         return sorted(
             sessions,
             key=lambda item: (
@@ -355,3 +257,28 @@ class SessionManager:
             ),
             reverse=True,
         )
+
+
+def _validate_metadata_record(record: object) -> dict[str, Any]:
+    if not isinstance(record, dict):
+        raise ValueError("session metadata must be an object")
+    if "role" in record or "_type" in record:
+        raise ValueError("session metadata must not contain role or _type")
+    if not isinstance(record.get("created_at"), str):
+        raise ValueError("session metadata requires created_at")
+    datetime.fromisoformat(record["created_at"])
+    if not isinstance(record.get("metadata"), dict):
+        raise ValueError("session metadata requires a metadata object")
+    return record
+
+
+def _display_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(item.get("text", ""))
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+    return ""

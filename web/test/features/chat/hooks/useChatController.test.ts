@@ -11,14 +11,18 @@ const mocks = vi.hoisted(() => ({
   fetchSessionMessages: vi.fn(),
   deleteRemoteSession: vi.fn(),
   pinSession: vi.fn(),
-  unpinSession: vi.fn()
+  unpinSession: vi.fn(),
+  onSocketMessage: vi.fn()
 }));
 
 vi.mock("@/features/chat/hooks/useChatWebSocket", () => ({
-  useChatWebSocket: () => ({
-    connectionStatus: "connected",
-    send: mocks.send
-  })
+  useChatWebSocket: (options: { onMessage: (message: unknown) => void }) => {
+    mocks.onSocketMessage.mockImplementation(options.onMessage);
+    return {
+      connectionStatus: "connected",
+      send: mocks.send
+    };
+  }
 }));
 
 vi.mock("@/features/chat/services/chatApi", () => ({
@@ -130,5 +134,61 @@ describe("useChatController attachments", () => {
     expect(result.current.inputValue).toBe("hello");
     expect(result.current.draftAttachments).toHaveLength(1);
     expect(result.current.activeSession?.messages).toEqual([]);
+  });
+
+  it("merges duplicate server events into the declared non-active session", async () => {
+    mocks.fetchSessions.mockResolvedValue([
+      {
+        id: "one",
+        key: "web:one",
+        createdAt: "2026-08-08T09:00:00",
+        updatedAt: "2026-08-08T09:00:00",
+        messages: []
+      },
+      {
+        id: "two",
+        key: "web:two",
+        createdAt: "2026-08-08T09:00:00",
+        updatedAt: "2026-08-08T09:00:00",
+        messages: []
+      }
+    ]);
+    mocks.fetchSessionMessages.mockResolvedValue({
+      id: "one",
+      key: "web:one",
+      createdAt: "2026-08-08T09:00:00",
+      updatedAt: "2026-08-08T09:00:00",
+      messages: []
+    });
+    const { result } = renderHook(() => useChatController());
+    await waitFor(() => expect(result.current.activeSessionId).toBe("one"));
+    const stage = {
+      type: "assistant_stage",
+      sessionId: "two",
+      message: {
+        id: "msg-a1",
+        role: "assistant",
+        content: "",
+        reasoningContent: "thinking",
+        toolCalls: [{ id: "call-1", name: "search", arguments: "{}" }],
+        createdAt: "2026-08-08T10:00:00"
+      }
+    };
+
+    act(() => {
+      mocks.onSocketMessage(stage);
+      mocks.onSocketMessage(stage);
+      mocks.onSocketMessage({
+        ...stage,
+        type: "assistant_final",
+        message: { ...stage.message, content: "answer" }
+      });
+    });
+
+    expect(result.current.activeSessionId).toBe("one");
+    expect(result.current.sessions.find((session) => session.id === "one")?.messages).toEqual([]);
+    expect(result.current.sessions.find((session) => session.id === "two")?.messages).toEqual([
+      { ...stage.message, content: "answer" }
+    ]);
   });
 });

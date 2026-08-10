@@ -127,6 +127,10 @@ class LiteLLMProvider(LLMProvider):
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
+            "extra_body": {
+                "thinking": {"type": "adaptive"},
+                "reasoning_split": True,
+            },
         }
 
         # Apply model-specific overrides (e.g. kimi-k2.5 temperature)
@@ -166,17 +170,23 @@ class LiteLLMProvider(LLMProvider):
         tool_calls = []
         if hasattr(message, "tool_calls") and message.tool_calls:
             for tc in message.tool_calls:
-                # Parse arguments from JSON string if needed
                 args = tc.function.arguments
                 if isinstance(args, str):
+                    raw_args = args
                     try:
-                        args = json.loads(args)
+                        parsed_args = json.loads(args)
+                        args = parsed_args if isinstance(parsed_args, dict) else {"raw": args}
                     except json.JSONDecodeError:
                         args = {"raw": args}
+                else:
+                    raw_args = json.dumps(args, ensure_ascii=False)
+                    if not isinstance(args, dict):
+                        args = {"raw": raw_args}
 
                 tool_calls.append(ToolCallRequest(
                     id=tc.id,
                     name=tc.function.name,
+                    raw_arguments=raw_args,
                     arguments=args,
                 ))
 

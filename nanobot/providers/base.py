@@ -10,6 +10,7 @@ class ToolCallRequest:
     """A tool call request from the LLM."""
     id: str
     name: str
+    raw_arguments: str
     arguments: dict[str, Any]
 
 

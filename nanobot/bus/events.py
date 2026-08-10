@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,8 @@ class OutboundMessage:
     channel: str
     chat_id: str
     content: str
+    kind: Literal["message", "assistant_stage", "assistant_final"] = "message"
+    assistant_record: dict[str, Any] | None = None
     reply_to: str | None = None
     media: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

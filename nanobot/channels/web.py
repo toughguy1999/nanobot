@@ -21,6 +21,7 @@ from nanobot.webservice.errors import (
     WebServiceError,
 )
 from nanobot.webservice.schemas import WebPreparedAttachment
+from nanobot.webservice.serialization import serialize_assistant_record
 from nanobot.webservice.service import WebService
 
 
@@ -54,6 +55,9 @@ class WebChannel(BaseChannel):
     """Web channel using FastAPI + WebSocket."""
 
     name = "web"
+    supported_outbound_kinds = frozenset(
+        {"message", "assistant_stage", "assistant_final"}
+    )
 
     def __init__(self, config: WebConfig, bus: MessageBus):
         super().__init__(config, bus)
@@ -240,7 +244,15 @@ class WebChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Handle outbound messages and send to WebSocket."""
         session_id = msg.chat_id  # chat_id is the session_id
-        await self._ws_manager.send_to(session_id, {"sessionId": session_id, "content": msg.content})
+        if msg.kind in {"assistant_stage", "assistant_final"} and msg.assistant_record:
+            payload = {
+                "type": msg.kind,
+                "sessionId": session_id,
+                "message": serialize_assistant_record(msg.assistant_record),
+            }
+        else:
+            payload = {"sessionId": session_id, "content": msg.content}
+        await self._ws_manager.send_to(session_id, payload)
 
     def _to_http_exception(self, error: WebServiceError) -> HTTPException:
         status_code = 400

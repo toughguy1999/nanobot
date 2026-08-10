@@ -145,7 +145,7 @@ class SubagentManager:
                             "type": "function",
                             "function": {
                                 "name": tc.name,
-                                "arguments": json.dumps(tc.arguments),
+                                "arguments": tc.raw_arguments,
                             },
                         }
                         for tc in response.tool_calls
@@ -154,6 +154,11 @@ class SubagentManager:
                         "role": "assistant",
                         "content": response.content or "",
                         "tool_calls": tool_call_dicts,
+                        **(
+                            {"reasoning_content": response.reasoning_content}
+                            if response.reasoning_content
+                            else {}
+                        ),
                     })
 
                     # Execute tools

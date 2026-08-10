@@ -9,6 +9,7 @@ from nanobot.session.manager import Session, SessionManager
 from nanobot.webservice.attachments import DEFAULT_ATTACHMENT_PROMPT, WebAttachmentStore
 from nanobot.webservice.errors import AttachmentError, BadRequestError, NotFoundError
 from nanobot.webservice.schemas import PreparedWebMessage
+from nanobot.webservice.serialization import serialize_assistant_record, serialize_user_record
 
 
 class WebService:
@@ -201,56 +202,12 @@ class WebService:
         }
 
     def _project_history_to_web_messages(self, session: Session) -> list[dict[str, Any]]:
-        messages: list[dict[str, Any]] = []
-        pending_tools: list[str] = []
-        visible_index = 0
-
-        for record in session.messages:
-            record_type = record.get("_type")
-            if record_type == "tool_call":
-                function = record.get("function") or {}
-                name = function.get("name")
-                if isinstance(name, str) and name:
-                    pending_tools.append(name)
-                continue
-            if record_type != "message":
-                continue
-
-            role = record.get("role")
-            if role == "system":
-                continue
-
-            data = {
-                "id": f"{session.key}:{visible_index}",
-                "role": role,
-                "content": self._web_message_content(record),
-                "createdAt": record.get("created_at"),
-            }
-            if role == "user" and record.get("attachments"):
-                data["attachments"] = record["attachments"]
-            metadata: dict[str, Any] = {}
-            if role == "assistant":
-                metadata["toolsUsed"] = pending_tools
-                pending_tools = []
-            if metadata:
-                data["metadata"] = metadata
-            messages.append(data)
-            visible_index += 1
-
-        return messages
-
-    def _web_message_content(self, record: dict[str, Any]) -> str:
-        display_content = record.get("display_content")
-        if isinstance(display_content, str):
-            return display_content
-        content = record.get("content", "")
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = [
-                str(item.get("text", ""))
-                for item in content
-                if isinstance(item, dict) and item.get("type") == "text"
-            ]
-            return "\n".join(part for part in parts if part)
-        return str(content) if content is not None else ""
+        serializers = {
+            "user": serialize_user_record,
+            "assistant": serialize_assistant_record,
+        }
+        return [
+            serializers[record["role"]](record)
+            for record in session.messages
+            if record.get("role") in serializers
+        ]

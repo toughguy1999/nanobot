@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,6 +17,8 @@
     "next": "^14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.4.0"
   },
   "devDependencies": {

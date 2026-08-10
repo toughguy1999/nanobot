@@ -7,6 +7,7 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
@@ -202,20 +203,30 @@ class ChannelManager:
                     self.bus.consume_outbound(),
                     timeout=1.0
                 )
-
-                channel = self.channels.get(msg.channel)
-                if channel:
-                    try:
-                        await channel.send(msg)
-                    except Exception as e:
-                        logger.error(f"Error sending to {msg.channel}: {e}")
-                else:
-                    logger.warning(f"Unknown channel: {msg.channel}")
+                await self._dispatch_message(msg)
 
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
+
+    async def _dispatch_message(self, msg: OutboundMessage) -> None:
+        """Dispatch one event if the target channel declares support for its kind."""
+        channel = self.channels.get(msg.channel)
+        if channel is None:
+            logger.warning(f"Unknown channel: {msg.channel}")
+            return
+        supports = getattr(channel, "supports_outbound_kind", None)
+        if supports is not None and not supports(msg.kind):
+            logger.debug(f"Dropping unsupported {msg.kind} event for {msg.channel}")
+            return
+        if supports is None and msg.kind == "assistant_stage":
+            logger.debug(f"Dropping unsupported {msg.kind} event for {msg.channel}")
+            return
+        try:
+            await channel.send(msg)
+        except Exception as e:
+            logger.error(f"Error sending to {msg.channel}: {e}")
 
     def get_channel(self, name: str) -> BaseChannel | None:
         """Get a channel by name."""

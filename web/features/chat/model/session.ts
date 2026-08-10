@@ -1,5 +1,5 @@
 import type { ChatMessage, Session } from "./chat.types";
-import { createId } from "./message";
+import { createId, mergeChatMessage } from "./message";
 
 export function createSession(): Session {
   const now = new Date().toISOString();
@@ -31,6 +31,43 @@ export function appendMessageToSession(
       messages: [...session.messages, message]
     };
   });
+}
+
+export function upsertMessageToSession(
+  sessions: Session[],
+  sessionId: string,
+  message: ChatMessage
+) {
+  return sessions.map((session) => {
+    if (session.id !== sessionId) {
+      return session;
+    }
+
+    const existingIndex = session.messages.findIndex((item) => item.id === message.id);
+    const messages = [...session.messages];
+    if (existingIndex >= 0) {
+      messages[existingIndex] = mergeChatMessage(messages[existingIndex], message);
+    } else {
+      messages.push(message);
+    }
+
+    return {
+      ...session,
+      updatedAt:
+        message.createdAt.localeCompare(session.updatedAt) > 0
+          ? message.createdAt
+          : session.updatedAt,
+      messages
+    };
+  });
+}
+
+export function mergeLoadedSession(existing: Session, loaded: Session): Session {
+  const merged = existing.messages.reduce(
+    (sessions, message) => upsertMessageToSession(sessions, loaded.id, message),
+    [{ ...loaded, messages: [...loaded.messages] }]
+  );
+  return merged[0];
 }
 
 export function sortSessions(sessions: Session[]) {
