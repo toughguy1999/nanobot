@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主 Agent · 当前上下文</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f6f7f9; color: #202632; font: 14px system-ui, sans-serif; }
+  header { padding: 16px 24px; background: white; border-bottom: 1px solid #ddd; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  p { margin: 0; color: #667085; }
+  main { padding: 24px; }
+  pre { margin: 0; padding: 20px; background: white; border: 1px solid #ddd; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.6 Consolas, monospace; }
+</style>
+<header><h1>主 Agent · 当前上下文</h1><p>展示主 Agent 的上下文、最新回复和工具结果，每 500 毫秒刷新。</p><label><input id="raw" type="checkbox"> 原始 JSON（保留转义）</label></header>
+<main><pre id="context">等待上下文。请设置 NANOBOT_LLM_CONTEXT=1 后启动主 Agent。</pre></main>
+<script>
+  const context = document.querySelector('#context');
+  const raw = document.querySelector('#raw');
+  let latest = null;
+  let previous = '';
+
+  // Render parsed strings directly: do not decode literal backslashes again.
+  function readable(value, depth = 0) {
+    if (typeof value === 'string') return '"' + value + '"';
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    const array = Array.isArray(value);
+    const entries = Object.entries(value);
+    const [left, right] = array ? ['[', ']'] : ['{', '}'];
+    if (!entries.length) return left + right;
+    const indent = '  '.repeat(depth + 1);
+    return left + '\n' + entries.map(([key, item]) =>
+      indent + (array ? '' : JSON.stringify(key) + ': ') + readable(item, depth + 1)
+    ).join(',\n') + '\n' + '  '.repeat(depth) + right;
+  }
+
+  function render() {
+    const content = latest === null
+      ? '等待上下文。请设置 NANOBOT_LLM_CONTEXT=1 后启动主 Agent。'
+      : raw.checked ? JSON.stringify(latest, null, 2) : readable(latest);
+    if (content !== previous) {
+      context.textContent = content;
+      previous = content;
+    }
+  }
+  raw.onchange = render;
+
+  async function refresh() {
+    latest = await fetch('/context').then(response => response.json());
+    render();
+    setTimeout(refresh, 500);
+  }
+  refresh();
+</script>
+</html>

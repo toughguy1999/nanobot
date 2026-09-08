@@ -21,6 +21,7 @@ from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.devtools.llm_context import publish_context
 from nanobot.providers.base import LLMProvider
 from nanobot.session.history import to_memory_transcript, trim_boundary
 from nanobot.session.manager import Session, SessionManager
@@ -317,9 +318,11 @@ class AgentLoop:
         """Run the shared role-based assistant/tool state machine."""
         for _ in range(self.max_iterations):
             try:
+                tools = self.tools.get_definitions()
+                publish_context(model=self.model, messages=messages, tools=tools)
                 response = await self.provider.chat(
                     messages=messages,
-                    tools=self.tools.get_definitions(),
+                    tools=tools,
                     model=self.model,
                 )
             except Exception as exc:
@@ -354,6 +357,8 @@ class AgentLoop:
                 tool_calls,
                 reasoning_content=response.reasoning_content,
             )
+
+            publish_context(model=self.model, messages=messages, tools=tools)
 
             if not response.has_tool_calls:
                 content = response.content or empty_response
@@ -401,6 +406,7 @@ class AgentLoop:
                     tool_call.name,
                     result,
                 )
+                publish_context(model=self.model, messages=messages, tools=tools)
 
         return self._persist_final(
             session=session,
