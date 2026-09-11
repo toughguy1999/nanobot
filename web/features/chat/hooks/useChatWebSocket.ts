@@ -87,7 +87,8 @@ export function useChatWebSocket({ enabled, onMessage, onError }: UseChatWebSock
   function send(
     sessionId: string,
     content: string,
-    attachments: Array<ChatAttachment | DraftAttachment> = []
+    attachments: Array<ChatAttachment | DraftAttachment> = [],
+    messageId?: string
   ) {
     const websocket = websocketRef.current;
 
@@ -97,7 +98,7 @@ export function useChatWebSocket({ enabled, onMessage, onError }: UseChatWebSock
     }
 
     try {
-      websocket.send(serializeClientMessage(sessionId, content, attachments));
+      websocket.send(serializeClientMessage(sessionId, content, attachments, messageId));
       return true;
     } catch {
       setConnectionStatus("disconnected");

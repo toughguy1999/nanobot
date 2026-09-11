@@ -19,3 +19,4 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Coding Instruction
 - 这是一个未上线的个人练手项目，添加新功能时，不需要考虑旧版本冲突，不需要考虑复杂的错误处理
+- 未经要求，不要修改architecture.md

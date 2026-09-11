@@ -111,11 +111,14 @@ class WebService:
         content = payload.get("content", "")
         session_id = payload.get("sessionId", "")
         attachments = payload.get("attachments", [])
+        message_id = payload.get("messageId")
 
         if not isinstance(content, str):
             raise BadRequestError("content is required")
         if not session_id or not isinstance(session_id, str):
             raise BadRequestError("sessionId is required")
+        if message_id is not None and (not isinstance(message_id, str) or not message_id.strip()):
+            raise BadRequestError("messageId must be a non-empty string")
 
         session_key = self.session_key(session_id)
         attachment_file_ids = self._parse_attachment_ids(attachments)
@@ -140,6 +143,7 @@ class WebService:
             metadata={
                 "session_key": session_key,
                 "display_content": display_content,
+                **({"message_id": message_id} if message_id is not None else {}),
             },
         )
 

@@ -245,18 +245,18 @@ export function useChatController() {
       }
     }
 
+    const userMessage = createMessage(
+      "user",
+      content || DEFAULT_ATTACHMENT_PROMPT,
+      undefined,
+      attachmentsToSend
+    );
     setSessions((currentSessions) =>
-      sortSessions(
-        appendMessageToSession(
-          currentSessions,
-          sendingSessionId,
-          createMessage("user", content || DEFAULT_ATTACHMENT_PROMPT, undefined, attachmentsToSend)
-        )
-      )
+      sortSessions(appendMessageToSession(currentSessions, sendingSessionId, userMessage))
     );
     setErrorMessage(null);
 
-    if (!send(sendingSessionId, content, attachmentsToSend)) {
+    if (!send(sendingSessionId, content, attachmentsToSend, userMessage.id)) {
       setSessions((currentSessions) =>
         currentSessions.map((session) =>
           session.id === sendingSessionId

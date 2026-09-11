@@ -1,10 +1,10 @@
 """Context builder for assembling agent prompts."""
 
-import platform
 from pathlib import Path
 from typing import Any
 
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.prompts import get_basic_system_prompt
 from nanobot.agent.skills import SkillsLoader
 
 
@@ -16,122 +16,47 @@ class ContextBuilder:
     into a coherent prompt for the LLM.
     """
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
+    def __init__(
+        self, workspace: Path, *, restrict_to_workspace: bool = False,
+    ):
+        self.workspace = workspace.expanduser().resolve()
+        self.restrict_to_workspace = restrict_to_workspace
+        self.memory = MemoryStore(self.workspace)
+        self.skills = SkillsLoader(self.workspace)
 
-    def __init__(self, workspace: Path):
-        self.workspace = workspace
-        self.memory = MemoryStore(workspace)
-        self.skills = SkillsLoader(workspace)
-
-    def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
-        """
-        Build the system prompt from bootstrap files, memory, and skills.
-
-        Args:
-            skill_names: Optional list of skills to include.
-
-        Returns:
-            Complete system prompt.
-        """
+    def build_system_prompt(self, channel: str | None = None) -> str:
+        """Assemble static instructions and fresh per-turn context."""
         parts = []
 
-        # Core identity
-        parts.append(self._get_identity())
-
-        # Bootstrap files
-        bootstrap = self._load_bootstrap_files()
-        if bootstrap:
-            parts.append(bootstrap)
+        # Basic Prompt
+        prompt = get_basic_system_prompt(
+            workspace=self.workspace,
+            restrict_to_workspace=self.restrict_to_workspace,
+            channel=channel
+        )
+        parts.append(prompt)
 
         # Memory context
         memory = self.memory.get_memory_context()
         if memory:
             parts.append(f"# Memory\n\n{memory}")
 
-        # Skills - progressive loading
-        # 1. Always-loaded skills: include full content
-        always_skills = self.skills.get_always_skills()
-        if always_skills:
-            always_content = self.skills.load_skills_for_context(always_skills)
-            if always_content:
-                parts.append(f"# Active Skills\n\n{always_content}")
-
-        # 2. Available skills: only show summary (agent uses read_file to load)
+        # Only descriptions enter the system prompt; bodies arrive via load_skill.
         skills_summary = self.skills.build_skills_summary()
         if skills_summary:
-            parts.append(f"""# Skills
-
-The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
-Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
-
-{skills_summary}""")
+            parts.append(f"# Skills List\n\n{skills_summary}")
 
         return "\n\n---\n\n".join(parts)
-
-    def _get_identity(self) -> str:
-        """Get the core identity section."""
-        import time as _time
-        from datetime import datetime
-        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
-        tz = _time.strftime("%Z") or "UTC"
-        workspace_path = str(self.workspace.expanduser().resolve())
-        system = platform.system()
-        runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
-
-        return f"""# nanobot 🐈
-
-You are nanobot, a helpful AI assistant. You have access to tools that allow you to:
-- Read, write, and edit files
-- Execute shell commands
-- Search the web and fetch web pages
-- Send messages to users on chat channels
-- Spawn subagents for complex background tasks
-
-## Current Time
-{now} ({tz})
-
-## Runtime
-{runtime}
-
-## Workspace
-Your workspace is at: {workspace_path}
-- Long-term memory: {workspace_path}/memory/MEMORY.md
-- History log: {workspace_path}/memory/HISTORY.md (grep-searchable)
-- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
-
-IMPORTANT: When responding to direct questions or conversations, reply directly with your text response.
-Only use the 'message' tool when you need to send a message to a specific chat channel (like WhatsApp).
-For normal conversation, just respond with text - do not call the message tool.
-
-Always be helpful, accurate, and concise.
-User can not see tool result directly, only assistant message will display.
-When remembering something important, write to {workspace_path}/memory/MEMORY.md
-To recall past events, grep {workspace_path}/memory/HISTORY.md"""
-
-    def _load_bootstrap_files(self) -> str:
-        """Load all bootstrap files from workspace."""
-        parts = []
-
-        for filename in self.BOOTSTRAP_FILES:
-            file_path = self.workspace / filename
-            if file_path.exists():
-                content = file_path.read_text(encoding="utf-8")
-                parts.append(f"## {filename}\n\n{content}")
-
-        return "\n\n".join(parts) if parts else ""
 
     def build_messages_from_llm_history(
         self,
         llm_history: list[dict[str, Any]],
-        skill_names: list[str] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build provider messages from already-converted LLM history."""
         messages: list[dict[str, Any]] = []
-        system_prompt = self.build_system_prompt(skill_names)
-        if channel and chat_id:
-            system_prompt += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
+        system_prompt = self.build_system_prompt(channel=channel)
         messages.append({"role": "system", "content": system_prompt})
         messages.extend(llm_history)
         return messages

@@ -1,9 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatController } from "@/features/chat/hooks/useChatController";
+import type { Session } from "@/features/chat/model/chat.types";
 
 const mocks = vi.hoisted(() => ({
-  send: vi.fn(() => true),
+  send: vi.fn<(sessionId: string, content: string, attachments: unknown[], messageId: string) => boolean>(() => true),
   uploadAttachment: vi.fn(),
   createRemoteSession: vi.fn(),
   checkServerStatus: vi.fn(),
@@ -92,9 +93,53 @@ describe("useChatController attachments", () => {
     expect(mocks.send).toHaveBeenCalledWith(
       expect.any(String),
       "",
-      [expect.objectContaining({ fileId: "att_one" })]
+      [expect.objectContaining({ fileId: "att_one" })],
+      result.current.activeSession?.messages[0].id
     );
     expect(result.current.draftAttachments).toEqual([]);
+  });
+
+  it("keeps each user turn once after switching away and back, including identical text", async () => {
+    const { result } = renderHook(() => useChatController());
+    await waitFor(() => expect(result.current.activeSessionId).not.toBeNull());
+
+    for (let index = 0; index < 2; index += 1) {
+      act(() => result.current.actions.setInputValue("same text"));
+      await act(async () => { await result.current.actions.sendMessage(); });
+    }
+    const original = result.current.activeSession!;
+    const sentIds = mocks.send.mock.calls.map((args) => args[3]);
+    expect(sentIds).toEqual(original.messages.map((message) => message.id));
+    expect(new Set(sentIds).size).toBe(2);
+
+    const history: Session = {
+      ...original,
+      messages: original.messages.flatMap((message, index) => [
+        { ...message, id: sentIds[index] },
+        { id: `answer-${index}`, role: "assistant", content: "answer", createdAt: message.createdAt }
+      ])
+    };
+    mocks.fetchSessionMessages.mockResolvedValue(history);
+    for (let index = 0; index < 2; index += 1) {
+      act(() => result.current.actions.createSession());
+      await act(async () => { await result.current.actions.selectSession(original.id); });
+      expect(result.current.activeSession?.messages).toEqual(history.messages);
+    }
+
+    let resolveHistory!: (value: Session) => void;
+    mocks.fetchSessionMessages.mockImplementationOnce(() => new Promise<Session>((resolve) => {
+      resolveHistory = resolve;
+    }));
+    let selection!: Promise<void>;
+    act(() => { selection = result.current.actions.selectSession(original.id); });
+    act(() => result.current.actions.setInputValue("pending"));
+    await act(async () => { await result.current.actions.sendMessage(); });
+    const pending = result.current.activeSession!.messages.at(-1)!;
+    await act(async () => {
+      resolveHistory(history);
+      await selection;
+    });
+    expect(result.current.activeSession?.messages).toEqual([...history.messages, pending]);
   });
 
   it("does not send while an attachment is uploading", async () => {

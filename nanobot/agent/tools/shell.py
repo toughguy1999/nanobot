@@ -9,6 +9,15 @@ from typing import Any
 from nanobot.agent.tools.base import Tool
 
 
+def get_execution_shell() -> str:
+    """Share the shell executable between execution and prompt rendering."""
+    if os.name == "nt":
+        return os.environ.get("COMSPEC") or str(
+            Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "cmd.exe"
+        )
+    return "/bin/sh"
+
+
 class ExecTool(Tool):
     """Tool to execute shell commands."""
 
@@ -72,6 +81,7 @@ class ExecTool(Tool):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                executable=get_execution_shell(),
             )
 
             try:

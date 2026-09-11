@@ -8,10 +8,13 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from nanobot.agent.prompts import get_skill_usage_rules
+from nanobot.agent.skills import SkillsLoader
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.rag import AbsurdNovelKnowledgeSearchTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.skills import LoadSkillTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
@@ -42,7 +45,8 @@ class SubagentManager:
     ):
         from nanobot.config.schema import ExecToolConfig
         self.provider = provider
-        self.workspace = workspace
+        self.workspace = workspace.expanduser().resolve()
+        self.skills = SkillsLoader(self.workspace)
         self.bus = bus
         self.model = model or provider.get_default_model()
         self.brave_api_key = brave_api_key
@@ -104,6 +108,7 @@ class SubagentManager:
             tools = ToolRegistry()
             allowed_dir = self.workspace if self.restrict_to_workspace else None
             tools.register(ReadFileTool(allowed_dir=allowed_dir))
+            tools.register(LoadSkillTool(self.skills))
             tools.register(WriteFileTool(allowed_dir=allowed_dir))
             tools.register(EditFileTool(allowed_dir=allowed_dir))
             tools.register(ListDirTool(allowed_dir=allowed_dir))
@@ -226,6 +231,8 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         tz = _time.strftime("%Z") or "UTC"
 
+        summary = self.skills.build_skills_summary()
+        skills_section = f"\n\n# Skills\n\n{summary}" if summary else ""
         return f"""# Subagent
 
 ## Current Time
@@ -252,7 +259,8 @@ You are a subagent spawned by the main agent to complete a specific task.
 
 ## Workspace
 Your workspace is at: {self.workspace}
-Skills are available at: {self.workspace}/skills/ (read SKILL.md files as needed)
+
+{get_skill_usage_rules()}{skills_section}
 
 When you have completed the task, provide a clear summary of your findings or actions."""
 

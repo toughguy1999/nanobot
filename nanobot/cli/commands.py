@@ -216,32 +216,6 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 - Use tools to help accomplish tasks
 - Remember important information in memory/MEMORY.md; past events are logged in memory/HISTORY.md
 """,
-        "SOUL.md": """# Soul
-
-I am nanobot, a lightweight AI assistant.
-
-## Personality
-
-- Helpful and friendly
-- Concise and to the point
-- Curious and eager to learn
-
-## Values
-
-- Accuracy over speed
-- User privacy and safety
-- Transparency in actions
-""",
-        "USER.md": """# User
-
-Information about the user goes here.
-
-## Preferences
-
-- Communication style: (casual/formal)
-- Timezone: (your timezone)
-- Language: (your preferred language)
-""",
     }
 
     for filename, content in templates.items():

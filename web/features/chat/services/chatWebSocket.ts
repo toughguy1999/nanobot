@@ -9,15 +9,18 @@ export function getWebSocketUrl() {
 export function serializeClientMessage(
   sessionId: string,
   content: string,
-  attachments: Array<ChatAttachment | DraftAttachment> = []
+  attachments: Array<ChatAttachment | DraftAttachment> = [],
+  messageId?: string
 ) {
   const payload: {
     sessionId: string;
     content: string;
+    messageId?: string;
     attachments?: { fileId: string }[];
   } = {
     sessionId,
-    content
+    content,
+    ...(messageId ? { messageId } : {})
   };
 
   if (attachments.length > 0) {

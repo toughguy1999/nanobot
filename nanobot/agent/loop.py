@@ -17,6 +17,7 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.rag import AbsurdNovelKnowledgeSearchTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.skills import LoadSkillTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
@@ -69,7 +70,9 @@ class AgentLoop:
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
 
-        self.context = ContextBuilder(workspace)
+        self.context = ContextBuilder(
+            workspace, restrict_to_workspace=restrict_to_workspace,
+        )
         self.sessions = session_manager or SessionManager()
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
@@ -90,6 +93,7 @@ class AgentLoop:
         # File tools (restrict to workspace if configured)
         allowed_dir = self.workspace if self.restrict_to_workspace else None
         self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
+        self.tools.register(LoadSkillTool(self.context.skills))
         self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
         self.tools.register(EditFileTool(allowed_dir=allowed_dir))
         self.tools.register(ListDirTool(allowed_dir=allowed_dir))
@@ -226,6 +230,7 @@ class AgentLoop:
             stable_user["content"],
             display_content=display_content,
             attachments=_attachment_history_metadata(msg.attachments),
+            **({"id": msg.metadata["message_id"]} if msg.metadata.get("message_id") else {}),
         )
         self.sessions.append(session, user_record)
 

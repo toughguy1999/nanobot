@@ -5,6 +5,14 @@ import {
 } from "@/features/chat/services/chatWebSocket";
 
 describe("chatWebSocket", () => {
+  it("includes the optimistic user message id in the wire payload", () => {
+    expect(JSON.parse(serializeClientMessage("one", "hello", [], "message-local"))).toEqual({
+      sessionId: "one",
+      content: "hello",
+      messageId: "message-local"
+    });
+  });
+
   it("serializes plain text messages without attachments for compatibility", () => {
     expect(JSON.parse(serializeClientMessage("session-one", "hello"))).toEqual({
       sessionId: "session-one",
