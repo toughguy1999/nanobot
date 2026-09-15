@@ -9,7 +9,7 @@ type AssistantMessageProps = {
 export function AssistantMessage({ message }: AssistantMessageProps) {
   const hasToolCalls = Boolean(message.toolCalls?.length);
   const hasProcess = Boolean(message.reasoningContent || hasToolCalls);
-  const content = hasToolCalls ? "正在调用工具🔧" : message.content
+  const content = hasToolCalls ? `*正在调用工具🔧...*\n\n${message.content}` : message.content
 
   return (
     <>

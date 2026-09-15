@@ -63,12 +63,14 @@ class Session:
         tool_call_id: str,
         name: str,
         content: str,
+        agent_status: str | None = None,
     ) -> dict[str, Any]:
         return self.add_message(
             "tool",
             content,
             tool_call_id=tool_call_id,
             name=name,
+            **({"agent_status": agent_status} if agent_status is not None else {}),
         )
 
     def get_llm_history(self, max_messages: int = 50) -> list[dict[str, Any]]:

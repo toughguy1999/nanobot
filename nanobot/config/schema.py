@@ -171,10 +171,10 @@ class ChannelsConfig(BaseModel):
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
     model: str = "anthropic/claude-opus-4-5"
-    max_tokens: int = 8192
+    max_tokens: int = 20000
     temperature: float = 0.7
-    max_tool_iterations: int = 20
-    memory_window: int = 50
+    max_tool_iterations: int = 100
+    memory_window: int = 100
 
 
 class AgentsConfig(BaseModel):

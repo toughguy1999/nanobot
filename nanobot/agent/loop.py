@@ -10,6 +10,7 @@ from loguru import logger
 from nanobot.agent.attachments import stabilize_user_message
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.status import AgentStatus
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -19,12 +20,13 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.skills import LoadSkillTool
 from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.agent.tools.todo import TodoEditTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.devtools.llm_context import publish_context
 from nanobot.providers.base import LLMProvider
-from nanobot.session.history import to_memory_transcript, trim_boundary
+from nanobot.session.history import to_llm_messages, to_memory_transcript, trim_boundary
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
@@ -50,8 +52,8 @@ class AgentLoop:
         provider: LLMProvider,
         workspace: Path,
         model: str | None = None,
-        max_iterations: int = 20,
-        memory_window: int = 50,
+        max_iterations: int = 100,
+        memory_window: int = 100,
         brave_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
@@ -180,6 +182,7 @@ class AgentLoop:
         if msg.channel == "system":
             return await self._process_system_message(msg, emit_events=emit_events)
 
+        status = AgentStatus()
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info(f"Processing message from {msg.channel}:{msg.sender_id}: {preview}")
 
@@ -192,6 +195,7 @@ class AgentLoop:
         if cmd == "/new":
             await self._consolidate_memory(session, archive_all=True)
             session.clear()
+            session.metadata.pop("todos", None)
             self.sessions.save(session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 New session started. Memory consolidated.")
@@ -228,6 +232,7 @@ class AgentLoop:
             self.sessions.save(session)
         user_record = session.add_user_message(
             stable_user["content"],
+            agent_status=status.snapshot(session),
             display_content=display_content,
             attachments=_attachment_history_metadata(msg.attachments),
             **({"id": msg.metadata["message_id"]} if msg.metadata.get("message_id") else {}),
@@ -242,6 +247,7 @@ class AgentLoop:
 
         return await self._run_turn(
             session=session,
+            status=status,
             messages=messages,
             channel=msg.channel,
             chat_id=msg.chat_id,
@@ -262,6 +268,7 @@ class AgentLoop:
         The chat_id field contains "original_channel:original_chat_id" to route
         the response back to the correct destination.
         """
+        status = AgentStatus()
         logger.info(f"Processing system message from {msg.sender_id}")
 
         # Parse origin from chat_id (format: "channel:chat_id")
@@ -292,7 +299,10 @@ class AgentLoop:
             cron_tool.set_context(origin_channel, origin_chat_id)
 
         # Build messages with the announce content
-        system_record = session.add_system_message(f"[System: {msg.sender_id}] {msg.content}")
+        system_record = session.add_system_message(
+            f"[System: {msg.sender_id}] {msg.content}",
+            agent_status=status.snapshot(session),
+        )
         self.sessions.append(session, system_record)
         messages = self.context.build_messages_from_llm_history(
             session.get_llm_history(),
@@ -307,6 +317,7 @@ class AgentLoop:
             chat_id=origin_chat_id,
             emit_events=emit_events,
             empty_response="Background task completed.",
+            status=status,
         )
 
     async def _run_turn(
@@ -314,6 +325,7 @@ class AgentLoop:
         *,
         session: Session,
         messages: list[dict[str, Any]],
+        status: AgentStatus,
         channel: str,
         chat_id: str,
         emit_events: bool,
@@ -321,9 +333,15 @@ class AgentLoop:
         metadata: dict[str, Any] | None = None,
     ) -> OutboundMessage:
         """Run the shared role-based assistant/tool state machine."""
+        turn_tools = ToolRegistry()
+        for name in self.tools.tool_names:
+            tool = self.tools.get(name)
+            if tool is not None:
+                turn_tools.register(tool)
+        turn_tools.register(TodoEditTool(session, self.sessions))
         for _ in range(self.max_iterations):
             try:
-                tools = self.tools.get_definitions()
+                tools = turn_tools.get_definitions()
                 publish_context(model=self.model, messages=messages, tools=tools)
                 response = await self.provider.chat(
                     messages=messages,
@@ -395,7 +413,7 @@ class AgentLoop:
                 args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                 logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
                 try:
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    result = await turn_tools.execute(tool_call.name, tool_call.arguments)
                 except Exception as exc:
                     result = f"Error executing {tool_call.name}: {str(exc)}"
                 logger.info(f"Tool result: {tool_call.name}({result})")
@@ -403,14 +421,10 @@ class AgentLoop:
                     tool_call_id=tool_call.id,
                     name=tool_call.name,
                     content=result,
+                    agent_status=status.snapshot(session),
                 )
                 self.sessions.append(session, tool_record)
-                self.context.add_tool_result(
-                    messages,
-                    tool_call.id,
-                    tool_call.name,
-                    result,
-                )
+                messages.extend(to_llm_messages([tool_record]))
                 publish_context(model=self.model, messages=messages, tools=tools)
 
         return self._persist_final(

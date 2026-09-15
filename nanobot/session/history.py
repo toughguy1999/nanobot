@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Literal, TypeAlias, TypedDict, cast
+from typing import Any, Literal, NotRequired, TypeAlias, TypedDict, cast
 
 from loguru import logger
 
@@ -32,6 +32,7 @@ class UserHistoryRecord(TypedDict, total=False):
     created_at: str
     display_content: str
     attachments: list[dict[str, Any]]
+    agent_status: str
 
 
 class AssistantHistoryRecord(TypedDict, total=False):
@@ -50,6 +51,7 @@ class ToolHistoryRecord(TypedDict):
     name: str
     content: str
     created_at: str
+    agent_status: NotRequired[str]
 
 
 class SystemHistoryRecord(TypedDict):
@@ -57,6 +59,7 @@ class SystemHistoryRecord(TypedDict):
     role: Literal["system"]
     content: str
     created_at: str
+    agent_status: NotRequired[str]
 
 
 HistoryRecord: TypeAlias = (
@@ -71,9 +74,15 @@ def to_llm_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         role = record.get("role")
         if role == "system":
             content = _llm_content(record.get("content", ""))
-            messages.append({"role": "user", "content": f"[System: {content}]"})
+            messages.append({
+                "role": "user",
+                "content": _append_agent_status(f"[System: {content}]", record),
+            })
         elif role == "user":
-            messages.append({"role": "user", "content": _llm_content(record.get("content", ""))})
+            messages.append({
+                "role": "user",
+                "content": _append_agent_status(_llm_content(record.get("content", "")), record),
+            })
         elif role == "assistant":
             message: dict[str, Any] = {
                 "role": "assistant",
@@ -89,9 +98,21 @@ def to_llm_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "role": "tool",
                 "tool_call_id": record["tool_call_id"],
                 "name": record["name"],
-                "content": record["content"],
+                "content": _append_agent_status(record["content"], record),
             })
     return messages
+
+
+def _append_agent_status(
+    content: str | list[dict[str, Any]], record: dict[str, Any],
+) -> str | list[dict[str, Any]]:
+    """Append only the saved snapshot, without mutating the canonical body."""
+    if "agent_status" not in record:
+        return content
+    status = record["agent_status"]
+    if isinstance(content, list):
+        return [*content, {"type": "text", "text": status}]
+    return f"{content}\n\n{status}"
 
 
 def to_memory_transcript(history: list[dict[str, Any]]) -> str:
@@ -169,6 +190,9 @@ def validate_history_record(record: dict[str, Any]) -> HistoryRecord:
     _require(record, "id", "content", "created_at")
     if not isinstance(record["id"], str) or not isinstance(record["created_at"], str):
         raise ValueError("history record id and created_at must be strings")
+    if "agent_status" in record:
+        if role == "assistant" or not isinstance(record["agent_status"], str):
+            raise ValueError("agent_status must be a string on a user, tool, or system record")
 
     if role == "user":
         if not isinstance(record["content"], (str, list)):
