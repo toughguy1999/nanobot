@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 from nanobot.agent.attachments import stabilize_user_message
+from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
 from nanobot.agent.context import ContextBuilder
-from nanobot.agent.memory import MemoryStore
 from nanobot.agent.status import AgentStatus
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from nanobot.agent.tools.filesystem import EditFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.rag import AbsurdNovelKnowledgeSearchTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -26,7 +26,7 @@ from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessag
 from nanobot.bus.queue import MessageBus
 from nanobot.devtools.llm_context import publish_context
 from nanobot.providers.base import LLMProvider
-from nanobot.session.history import to_llm_messages, to_memory_transcript, trim_boundary
+from nanobot.session.history import to_llm_messages
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
@@ -53,12 +53,13 @@ class AgentLoop:
         workspace: Path,
         model: str | None = None,
         max_iterations: int = 100,
-        memory_window: int = 100,
+        max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS,
         brave_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
+        max_tokens: int = 20000,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -66,7 +67,8 @@ class AgentLoop:
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
-        self.memory_window = memory_window
+        self.max_tokens = max_tokens
+        self.max_tool_result_tokens = max_tool_result_tokens
         self.brave_api_key = brave_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
@@ -81,7 +83,9 @@ class AgentLoop:
             provider=provider,
             workspace=workspace,
             bus=bus,
+            max_tool_result_tokens=max_tool_result_tokens,
             model=self.model,
+            max_tokens=self.max_tokens,
             brave_api_key=brave_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
@@ -94,11 +98,9 @@ class AgentLoop:
         """Register the default set of tools."""
         # File tools (restrict to workspace if configured)
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
         self.tools.register(LoadSkillTool(self.context.skills))
-        self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
-        self.tools.register(EditFileTool(allowed_dir=allowed_dir))
-        self.tools.register(ListDirTool(allowed_dir=allowed_dir))
+        self.tools.register(WriteFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
+        self.tools.register(EditFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
 
         # Shell tool
         self.tools.register(ExecTool(
@@ -193,19 +195,14 @@ class AgentLoop:
         # Handle slash commands
         cmd = msg.content.strip().lower()
         if cmd == "/new":
-            await self._consolidate_memory(session, archive_all=True)
             session.clear()
             session.metadata.pop("todos", None)
             self.sessions.save(session)
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 New session started. Memory consolidated.")
+                                  content="🐈 New session started.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🐈 nanobot commands:\n/new — Start a new conversation\n/help — Show available commands")
-
-        # Consolidate memory before processing if session is too large
-        if len(session.messages) > self.memory_window:
-            await self._consolidate_memory(session)
 
         # Update tool contexts
         message_tool = self.tools.get("message")
@@ -347,6 +344,7 @@ class AgentLoop:
                     messages=messages,
                     tools=tools,
                     model=self.model,
+                    max_tokens=self.max_tokens,
                 )
             except Exception as exc:
                 return self._persist_final(
@@ -416,6 +414,7 @@ class AgentLoop:
                     result = await turn_tools.execute(tool_call.name, tool_call.arguments)
                 except Exception as exc:
                     result = f"Error executing {tool_call.name}: {str(exc)}"
+                result = compress_tool_result(result, self.max_tool_result_tokens)
                 logger.info(f"Tool result: {tool_call.name}({result})")
                 tool_record = session.add_tool_result(
                     tool_call_id=tool_call.id,
@@ -455,70 +454,6 @@ class AgentLoop:
             metadata=metadata or {},
         )
 
-    async def _consolidate_memory(self, session, archive_all: bool = False) -> None:
-        """Consolidate old messages into MEMORY.md + HISTORY.md, then trim session."""
-        if not session.messages:
-            return
-        memory = MemoryStore(self.workspace)
-        if archive_all:
-            keep_records = []
-            old_messages = list(session.messages)
-            keep_count = 0
-        else:
-            keep_count = min(10, max(2, self.memory_window // 2))
-            keep_records = trim_boundary(session.messages, keep_count)
-            keep_ids = {_history_record_key(record) for record in keep_records}
-            old_messages = [
-                record
-                for record in session.messages
-                if _history_record_key(record) not in keep_ids
-            ]
-        if not old_messages:
-            return
-        logger.info(f"Memory consolidation started: {len(session.messages)} messages, archiving {len(old_messages)}, keeping {keep_count}")
-
-        conversation = to_memory_transcript(old_messages)
-        current_memory = memory.read_long_term()
-
-        prompt = f"""You are a memory consolidation agent. Process this conversation and return a JSON object with exactly two keys:
-
-1. "history_entry": A paragraph (2-5 sentences) summarizing the key events/decisions/topics. Start with a timestamp like [YYYY-MM-DD HH:MM]. Include enough detail to be useful when found by grep search later.
-
-2. "memory_update": The updated long-term memory content. Add any new facts: user location, preferences, personal info, habits, project context, technical decisions, tools/services used. If nothing new, return the existing content unchanged.
-
-## Current Long-term Memory
-{current_memory or "(empty)"}
-
-## Conversation to Process
-{conversation}
-
-Respond with ONLY valid JSON, no markdown fences."""
-
-        try:
-            response = await self.provider.chat(
-                messages=[
-                    {"role": "system", "content": "You are a memory consolidation agent. Respond only with valid JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                model=self.model,
-            )
-            text = (response.content or "").strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-            result = json.loads(text)
-
-            if entry := result.get("history_entry"):
-                memory.append_history(entry)
-            if update := result.get("memory_update"):
-                if update != current_memory:
-                    memory.write_long_term(update)
-
-            session.messages = keep_records
-            self.sessions.save(session)
-            logger.info(f"Memory consolidation done, session trimmed to {len(session.messages)} messages")
-        except Exception as e:
-            logger.error(f"Memory consolidation failed: {e}")
-
     async def process_direct(
         self,
         content: str,
@@ -551,10 +486,6 @@ Respond with ONLY valid JSON, no markdown fences."""
             emit_events=False,
         )
         return response.content if response else ""
-
-
-def _history_record_key(record: dict) -> tuple[str, str]:
-    return (str(record.get("role", "")), str(record.get("id", "")))
 
 
 def _attachment_history_metadata(attachments: list[InboundAttachment]) -> list[dict[str, object]]:

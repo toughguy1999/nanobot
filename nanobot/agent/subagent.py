@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.agent.prompts import get_skill_usage_rules
+from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
+from nanobot.agent.prompts import get_file_command_guidelines, get_skill_usage_rules
 from nanobot.agent.skills import SkillsLoader
-from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
+from nanobot.agent.tools.filesystem import EditFileTool, WriteFileTool
 from nanobot.agent.tools.rag import AbsurdNovelKnowledgeSearchTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.shell import ExecTool, get_execution_shell
 from nanobot.agent.tools.skills import LoadSkillTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage
@@ -42,8 +43,12 @@ class SubagentManager:
         brave_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS,
+        max_tokens: int = 20000,
     ):
         from nanobot.config.schema import ExecToolConfig
+        self.max_tool_result_tokens = max_tool_result_tokens
+        self.max_tokens = max_tokens
         self.provider = provider
         self.workspace = workspace.expanduser().resolve()
         self.skills = SkillsLoader(self.workspace)
@@ -107,11 +112,9 @@ class SubagentManager:
             # Build subagent tools (no message tool, no spawn tool)
             tools = ToolRegistry()
             allowed_dir = self.workspace if self.restrict_to_workspace else None
-            tools.register(ReadFileTool(allowed_dir=allowed_dir))
             tools.register(LoadSkillTool(self.skills))
-            tools.register(WriteFileTool(allowed_dir=allowed_dir))
-            tools.register(EditFileTool(allowed_dir=allowed_dir))
-            tools.register(ListDirTool(allowed_dir=allowed_dir))
+            tools.register(WriteFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
+            tools.register(EditFileTool(allowed_dir=allowed_dir, workspace=self.workspace))
             tools.register(ExecTool(
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
@@ -140,6 +143,7 @@ class SubagentManager:
                     messages=messages,
                     tools=tools.get_definitions(),
                     model=self.model,
+                    max_tokens=self.max_tokens,
                 )
 
                 if response.has_tool_calls:
@@ -170,7 +174,11 @@ class SubagentManager:
                     for tool_call in response.tool_calls:
                         args_str = json.dumps(tool_call.arguments)
                         logger.debug(f"Subagent [{task_id}] executing: {tool_call.name} with arguments: {args_str}")
-                        result = await tools.execute(tool_call.name, tool_call.arguments)
+                        try:
+                            result = await tools.execute(tool_call.name, tool_call.arguments)
+                        except Exception as exc:
+                            result = f"Error executing {tool_call.name}: {exc}"
+                        result = compress_tool_result(result, self.max_tool_result_tokens)
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -248,7 +256,7 @@ You are a subagent spawned by the main agent to complete a specific task.
 
 ## What You Can Do
 - Read and write files in the workspace
-- Execute shell commands
+- Execute PowerShell 7 commands via exec_command
 - Search the web and fetch web pages
 - Complete the task thoroughly
 
@@ -259,6 +267,10 @@ You are a subagent spawned by the main agent to complete a specific task.
 
 ## Workspace
 Your workspace is at: {self.workspace}
+Command shell: PowerShell 7 ({get_execution_shell()})
+Default command working directory: {self.workspace}
+
+{get_file_command_guidelines()}
 
 {get_skill_usage_rules()}{skills_section}
 

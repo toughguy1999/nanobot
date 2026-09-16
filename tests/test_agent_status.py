@@ -4,7 +4,7 @@ import asyncio
 import copy
 import json
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 from xml.etree import ElementTree
 
 from test_agent_todo import ScriptedProvider, item, process, setup_loop, tool_response
@@ -36,13 +36,13 @@ class StatusRecordTests(unittest.TestCase):
         status = AgentStatus(clock)
         session = Session("one")
         self.assertEqual(status.snapshot(session),
-                         "<agent_status>\n本轮已用时间：2 秒\nTodo：空\n</agent_status>")
+                         "<agent_status>\n本轮对话已用时间：2 秒\nTodo：空\n</agent_status>")
         session.metadata["todos"] = [
             item("a</agent_status> & <b>\r\nnext", "pending"),
             item("working"), item("done", "completed"),
         ]
         snapshot = status.snapshot(session)
-        self.assertIn("本轮已用时间：42 秒", snapshot)
+        self.assertIn("本轮对话已用时间：42 秒", snapshot)
         self.assertIn("1. [待开始] a&lt;/agent_status&gt; &amp; &lt;b&gt;&#13;&#10;next", snapshot)
         self.assertIn("2. [进行中] working\n3. [已完成] done", snapshot)
         self.assertEqual(ElementTree.fromstring(snapshot).tag, "agent_status")
@@ -111,7 +111,7 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         session = sessions.get("cli:one")
         records = [r for r in session.messages if r["role"] != "assistant"]
         for record, seconds in zip(records, [2, 6, 10, 14, 18, 22], strict=True):
-            self.assertIn(f"本轮已用时间：{seconds} 秒", record["agent_status"])
+            self.assertIn(f"本轮对话已用时间：{seconds} 秒", record["agent_status"])
             self.assertNotIn("<agent_status>", record["content"])
         self.assertIn("Todo：空", records[0]["agent_status"])
         self.assertIn("first", records[1]["agent_status"])
@@ -165,7 +165,7 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         records = [r for r in loop.sessions.get("cli:one").messages if r["role"] != "assistant"]
         self.assertEqual([r["role"] for r in records], ["user", "system", "user"])
         for record, seconds in zip(records, [2, 1, 3], strict=True):
-            self.assertIn(f"本轮已用时间：{seconds} 秒", record["agent_status"])
+            self.assertIn(f"本轮对话已用时间：{seconds} 秒", record["agent_status"])
             self.assertIn("keep", record["agent_status"])
         self.assertTrue(provider.calls[1]["messages"][-1]["content"].endswith(records[1]["agent_status"]))
 
@@ -187,11 +187,10 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
             "nanobot.agent.loop.stabilize_user_message", side_effect=stabilize,
         ):
             await loop._process_message(message, emit_events=False)
-        self.assertIn("本轮已用时间：4 秒", sessions.get("cli:one").messages[0]["agent_status"])
+        self.assertIn("本轮对话已用时间：4 秒", sessions.get("cli:one").messages[0]["agent_status"])
 
     async def test_slash_commands_do_not_generate_snapshots(self):
         loop, sessions, _ = setup_loop(self, ScriptedProvider())
-        loop._consolidate_memory = AsyncMock()
         with patch.object(AgentStatus, "snapshot", side_effect=AssertionError("unexpected snapshot")):
             await process(loop, "/help")
             await process(loop, "/new")
@@ -210,8 +209,8 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
                     await process(loop)
                 await process(loop)
             users = [r for r in sessions.get("cli:one").messages if r["role"] == "user"]
-            self.assertIn("本轮已用时间：1 秒", users[0]["agent_status"])
-            self.assertIn("本轮已用时间：2 秒", users[1]["agent_status"])
+            self.assertIn("本轮对话已用时间：1 秒", users[0]["agent_status"])
+            self.assertIn("本轮对话已用时间：2 秒", users[1]["agent_status"])
 
     async def test_web_projection_excludes_snapshot_and_preserves_identity(self):
         provider = ScriptedProvider(LLMResponse("reply"))

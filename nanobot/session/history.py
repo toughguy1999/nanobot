@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Literal, NotRequired, TypeAlias, TypedDict, cast
 
 from loguru import logger
@@ -115,71 +114,6 @@ def _append_agent_status(
     return f"{content}\n\n{status}"
 
 
-def to_memory_transcript(history: list[dict[str, Any]]) -> str:
-    """Render canonical history into a compact transcript for consolidation."""
-    lines: list[str] = []
-    for record in history:
-        created_at = str(record.get("created_at") or "?")[:16]
-        role = record.get("role")
-        if role in {"user", "assistant", "system"}:
-            content = _text_content(record.get("display_content", record.get("content", "")))
-            if content:
-                lines.append(f"[{created_at}] {str(role).upper()}: {content}")
-            if role == "assistant":
-                for tool_call in record.get("tool_calls") or []:
-                    function = tool_call.get("function") or {}
-                    lines.append(
-                        f"[{created_at}] TOOL_CALL {function.get('name', '')}: "
-                        f"{_summarize(function.get('arguments', ''))}"
-                    )
-        elif role == "tool":
-            lines.append(
-                f"[{created_at}] TOOL_RESULT {record.get('name', '')} "
-                f"({record.get('tool_call_id', '')}): {_summarize(record.get('content', ''))}"
-            )
-    return "\n".join(lines)
-
-
-def trim_boundary(history: list[dict[str, Any]], keep_count: int) -> list[dict[str, Any]]:
-    """Return a suffix without orphaning an assistant tool-call stage."""
-    if keep_count <= 0:
-        return []
-    start = max(0, len(history) - keep_count)
-    if history[start].get("role") == "tool":
-        pending_id = str(history[start].get("tool_call_id", ""))
-        for index in range(start - 1, -1, -1):
-            previous = history[index]
-            if previous.get("role") != "assistant":
-                continue
-            call_ids = {
-                str(call.get("id", "")) for call in previous.get("tool_calls") or []
-            }
-            if pending_id in call_ids:
-                start = index
-                break
-
-    candidate = list(history[start:])
-    while candidate and candidate[0].get("role") == "tool":
-        candidate.pop(0)
-
-    if candidate and candidate[0].get("role") == "assistant":
-        expected = {
-            str(call.get("id", "")) for call in candidate[0].get("tool_calls") or []
-        }
-        if expected:
-            actual: set[str] = set()
-            for record in candidate[1:]:
-                if record.get("role") != "tool":
-                    break
-                actual.add(str(record.get("tool_call_id", "")))
-            if actual != expected:
-                candidate.pop(0)
-                while candidate and candidate[0].get("role") == "tool":
-                    candidate.pop(0)
-
-    return candidate
-
-
 def validate_history_record(record: dict[str, Any]) -> HistoryRecord:
     """Validate one canonical role record and reject legacy record shapes."""
     if "_type" in record:
@@ -236,18 +170,6 @@ def _require(record: dict[str, Any], *fields: str) -> None:
         raise ValueError(f"history record requires {', '.join(missing)}")
 
 
-def _text_content(content: object) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(str(item.get("text", "")))
-        return "\n".join(part for part in parts if part)
-    return str(content) if content is not None else ""
-
-
 def _llm_content(content: object) -> str | list[dict[str, Any]]:
     if not isinstance(content, list):
         return str(content) if content is not None else ""
@@ -270,10 +192,3 @@ def _llm_content(content: object) -> str | list[dict[str, Any]]:
                 continue
         converted.append(item)
     return converted
-
-
-def _summarize(value: object, limit: int = 500) -> str:
-    if not isinstance(value, str):
-        value = json.dumps(value, ensure_ascii=False)
-    value = value.replace("\n", "\\n")
-    return value if len(value) <= limit else f"{value[:limit]}..."

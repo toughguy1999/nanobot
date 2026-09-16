@@ -23,7 +23,6 @@ class WebMessageIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.service = WebService(self.sessions, WebAttachmentStore(root / "attachments"))
         self.loop = AgentLoop.__new__(AgentLoop)
         self.loop.sessions = self.sessions
-        self.loop.memory_window = 100
         self.loop.tools = Mock()
         self.loop.context = Mock()
         self.loop._run_turn = AsyncMock(return_value=None)

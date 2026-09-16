@@ -10,7 +10,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.session.history import to_llm_messages, trim_boundary, validate_history_record
+from nanobot.session.history import to_llm_messages, validate_history_record
 from nanobot.utils.helpers import PROJECT_ROOT, ensure_dir, safe_filename
 
 
@@ -73,9 +73,9 @@ class Session:
             **({"agent_status": agent_status} if agent_status is not None else {}),
         )
 
-    def get_llm_history(self, max_messages: int = 50) -> list[dict[str, Any]]:
-        """Return at most the requested canonical suffix, expanded to a complete stage."""
-        return to_llm_messages(trim_boundary(self.messages, max_messages))
+    def get_llm_history(self) -> list[dict[str, Any]]:
+        """Project all saved canonical records without trimming history."""
+        return to_llm_messages(self.messages)
 
     def clear(self) -> None:
         self.messages = []

@@ -6,7 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.registry import ToolRegistry
@@ -186,7 +186,6 @@ class TodoLoopTests(unittest.IsolatedAsyncioTestCase):
         session = sessions.get_or_create("cli:one")
         session.metadata = {"todos": [item()], "title": "keep"}
         sessions.save(session)
-        loop._consolidate_memory = AsyncMock()
         await process(loop, "/new")
         self.assertEqual(sessions.get("cli:one", refresh=True).metadata, {"title": "keep"})
 

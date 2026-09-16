@@ -12,7 +12,7 @@ from nanobot.agent.loop import AgentLoop
 from nanobot.agent.prompts import get_skill_usage_rules
 from nanobot.agent.skills import SkillsLoader
 from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.filesystem import ReadFileTool
+from nanobot.agent.tools.filesystem import EditFileTool
 from nanobot.agent.tools.skills import LoadSkillTool
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse, ToolCallRequest
@@ -79,7 +79,7 @@ class SkillLoadingChecks(unittest.IsolatedAsyncioTestCase):
     async def test_outside_link_and_resource_permissions(self):
         path = self.skill('builtin', 'builtin body', builtin=True)
         self.assertEqual(ET.fromstring(await self.tool.execute('builtin')).findtext('body'), 'builtin body')
-        self.assertTrue((await ReadFileTool(self.workspace).execute(str(path))).startswith('Error:'))
+        self.assertTrue((await EditFileTool(self.workspace).execute(str(path), "builtin", "changed")).startswith('Error:'))
         local = self.skill('escape', 'local')
         original_resolve = Path.resolve
 

@@ -3,6 +3,8 @@
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS
+
 
 class WhatsAppConfig(BaseModel):
     """WhatsApp channel configuration."""
@@ -174,7 +176,7 @@ class AgentDefaults(BaseModel):
     max_tokens: int = 20000
     temperature: float = 0.7
     max_tool_iterations: int = 100
-    memory_window: int = 100
+    max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS
 
 
 class AgentsConfig(BaseModel):
