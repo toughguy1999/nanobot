@@ -9,6 +9,7 @@ from loguru import logger
 
 from nanobot.agent.attachments import stabilize_user_message
 from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
+from nanobot.agent.compress.service import HistoryCompressionService
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.status import AgentStatus
 from nanobot.agent.subagent import SubagentManager
@@ -26,11 +27,10 @@ from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessag
 from nanobot.bus.queue import MessageBus
 from nanobot.devtools.llm_context import publish_context
 from nanobot.providers.base import LLMProvider
-from nanobot.session.history import to_llm_messages
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ExecToolConfig
+    from nanobot.config.schema import ExecToolConfig, HistoryCompressionConfig
     from nanobot.cron.service import CronService
 
 
@@ -60,8 +60,10 @@ class AgentLoop:
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
         max_tokens: int = 20000,
+        history_compression: "HistoryCompressionConfig | None" = None,
+        summary_provider: LLMProvider | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig
+        from nanobot.config.schema import ExecToolConfig, HistoryCompressionConfig
         self.bus = bus
         self.provider = provider
         self.workspace = workspace
@@ -78,6 +80,15 @@ class AgentLoop:
             workspace, restrict_to_workspace=restrict_to_workspace,
         )
         self.sessions = session_manager or SessionManager()
+        compression_config = history_compression or HistoryCompressionConfig()
+        self.history_compression = HistoryCompressionService(
+            compression_config,
+            self.sessions,
+        )
+        self.summary_model = compression_config.summary_model or self.model
+        self.summary_provider = (
+            provider if compression_config.summary_model is None else summary_provider
+        )
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
             provider=provider,
@@ -236,16 +247,9 @@ class AgentLoop:
         )
         self.sessions.append(session, user_record)
 
-        messages = self.context.build_messages_from_llm_history(
-            session.get_llm_history(),
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-        )
-
         return await self._run_turn(
             session=session,
             status=status,
-            messages=messages,
             channel=msg.channel,
             chat_id=msg.chat_id,
             metadata=msg.metadata or {},
@@ -301,15 +305,8 @@ class AgentLoop:
             agent_status=status.snapshot(session),
         )
         self.sessions.append(session, system_record)
-        messages = self.context.build_messages_from_llm_history(
-            session.get_llm_history(),
-            channel=origin_channel,
-            chat_id=origin_chat_id,
-        )
-
         return await self._run_turn(
             session=session,
-            messages=messages,
             channel=origin_channel,
             chat_id=origin_chat_id,
             emit_events=emit_events,
@@ -321,7 +318,6 @@ class AgentLoop:
         self,
         *,
         session: Session,
-        messages: list[dict[str, Any]],
         status: AgentStatus,
         channel: str,
         chat_id: str,
@@ -336,9 +332,17 @@ class AgentLoop:
             if tool is not None:
                 turn_tools.register(tool)
         turn_tools.register(TodoEditTool(session, self.sessions))
+        system_prompt = self.context.build_system_prompt(channel=channel)
+        tools = turn_tools.get_definitions()
         for _ in range(self.max_iterations):
             try:
-                tools = turn_tools.get_definitions()
+                messages = await self._prepare_main_request(
+                    session,
+                    channel=channel,
+                    chat_id=chat_id,
+                    system_prompt=system_prompt,
+                    tools=tools,
+                )
                 publish_context(model=self.model, messages=messages, tools=tools)
                 response = await self.provider.chat(
                     messages=messages,
@@ -366,30 +370,29 @@ class AgentLoop:
                 }
                 for tool_call in response.tool_calls
             ]
+            response_content = response.content or ""
+            if not response.has_tool_calls and not response_content:
+                response_content = empty_response
             assistant_record = session.add_assistant_message(
-                response.content or "",
+                response_content,
                 reasoning_content=response.reasoning_content,
                 tool_calls=tool_calls,
             )
             self.sessions.append(session, assistant_record)
-            self.context.add_assistant_message(
-                messages,
-                response.content,
-                tool_calls,
-                reasoning_content=response.reasoning_content,
+            messages = self._build_main_messages(
+                session,
+                channel=channel,
+                chat_id=chat_id,
+                system_prompt=system_prompt,
             )
 
             publish_context(model=self.model, messages=messages, tools=tools)
 
             if not response.has_tool_calls:
-                content = response.content or empty_response
-                if content != assistant_record["content"]:
-                    assistant_record["content"] = content
-                    self.sessions.save(session)
                 return OutboundMessage(
                     channel=channel,
                     chat_id=chat_id,
-                    content=content,
+                    content=response_content,
                     kind="assistant_final",
                     assistant_record=assistant_record,
                     metadata=metadata or {},
@@ -423,7 +426,12 @@ class AgentLoop:
                     agent_status=status.snapshot(session),
                 )
                 self.sessions.append(session, tool_record)
-                messages.extend(to_llm_messages([tool_record]))
+                messages = self._build_main_messages(
+                    session,
+                    channel=channel,
+                    chat_id=chat_id,
+                    system_prompt=system_prompt,
+                )
                 publish_context(model=self.model, messages=messages, tools=tools)
 
         return self._persist_final(
@@ -433,6 +441,62 @@ class AgentLoop:
             content=f"Reached {self.max_iterations} iterations without completion.",
             metadata=metadata,
         )
+
+    def _build_main_messages(
+        self,
+        session: Session,
+        *,
+        channel: str,
+        chat_id: str,
+        system_prompt: str,
+    ) -> list[dict[str, Any]]:
+        """Rebuild the actual main-model context from committed session state."""
+        return self.context.build_messages_from_llm_history(
+            session.get_llm_history(),
+            channel=channel,
+            chat_id=chat_id,
+            history_summary=session.compression.summary,
+            system_prompt=system_prompt,
+        )
+
+    async def _prepare_main_request(
+        self,
+        session: Session,
+        *,
+        channel: str,
+        chat_id: str,
+        system_prompt: str,
+        tools: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        self.history_compression.prepare_for_request(session)
+        messages = self._build_main_messages(
+            session,
+            channel=channel,
+            chat_id=chat_id,
+            system_prompt=system_prompt,
+        )
+        request_tokens = self.history_compression.estimate_request(
+            messages=messages,
+            tools=tools,
+        )
+        if await self.history_compression.maybe_summarize(
+            session,
+            request_tokens=request_tokens,
+            summary_provider=self.summary_provider,
+            summary_model=self.summary_model,
+        ):
+            messages = self._build_main_messages(
+                session,
+                channel=channel,
+                chat_id=chat_id,
+                system_prompt=system_prompt,
+            )
+            request_tokens = self.history_compression.estimate_request(
+                messages=messages,
+                tools=tools,
+            )
+        self.history_compression.warn_if_still_over_threshold(request_tokens)
+        return messages
 
     def _persist_final(
         self,

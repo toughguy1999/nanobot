@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import json
+import os
 import unittest
 from unittest.mock import Mock, patch
 from xml.etree import ElementTree
@@ -142,7 +143,17 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         session.metadata["todos"] = [item("old")]
         sessions.save(session)
         self.clock(0, 1, 2)
-        with patch("nanobot.session.manager.os.replace", side_effect=OSError("disk full")):
+        real_replace = os.replace
+        replace_count = 0
+
+        def fail_todo_save(source, destination):
+            nonlocal replace_count
+            replace_count += 1
+            if replace_count == 1:
+                raise OSError("disk full")
+            return real_replace(source, destination)
+
+        with patch("nanobot.session.manager.os.replace", side_effect=fail_todo_save):
             await process(loop)
         record = next(r for r in session.messages if r["role"] == "tool")
         self.assertIn("Error", record["content"])

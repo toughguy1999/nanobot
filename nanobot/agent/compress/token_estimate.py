@@ -1,4 +1,10 @@
-"""Fixed Unicode code-point weights; no tokenizer or external Unicode data."""
+"""Cheap deterministic token estimates without a tokenizer."""
+
+from __future__ import annotations
+
+import json
+
+IMAGE_TOKEN_ESTIMATE = 1024
 
 # Han (including extensions and compatibility), kana, Hangul, and punctuation.
 CJK_RANGES = (
@@ -28,3 +34,41 @@ def character_weight(char: str) -> int:
 
 def estimate_tokens(text: str) -> int:
     return (sum(character_weight(char) for char in text) + 3) // 4
+
+
+def estimate_payload_tokens(value: object) -> int:
+    """Estimate one complete JSON-compatible payload."""
+    normalized, image_count = _normalize_images(value)
+    serialized = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return estimate_tokens(serialized) + image_count * IMAGE_TOKEN_ESTIMATE
+
+
+def _normalize_images(value: object) -> tuple[object, int]:
+    if isinstance(value, dict):
+        if value.get("type") == "image_url" and "image_url" in value:
+            return {"type": "image_url", "image_url": "<image>"}, 1
+        normalized: dict[str, object] = {}
+        count = 0
+        for key, item in value.items():
+            normalized_item, item_count = _normalize_images(item)
+            normalized[str(key)] = normalized_item
+            count += item_count
+        return normalized, count
+    if isinstance(value, list):
+        normalized_items: list[object] = []
+        count = 0
+        for item in value:
+            normalized_item, item_count = _normalize_images(item)
+            normalized_items.append(normalized_item)
+            count += item_count
+        return normalized_items, count
+    if isinstance(value, tuple):
+        return _normalize_images(list(value))
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value, 0
+    return str(value), 0

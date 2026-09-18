@@ -257,22 +257,36 @@ This file stores important information that should persist across sessions.
     skills_dir.mkdir(exist_ok=True)
 
 
-def _make_provider(config):
+def _make_provider(config, model=None, *, required=True):
     """Create LiteLLMProvider from config. Exits if no API key found."""
     from nanobot.providers.litellm_provider import LiteLLMProvider
-    p = config.get_provider()
-    model = config.agents.defaults.model
-    if not (p and p.api_key) and not model.startswith("bedrock/"):
+    target_model = model or config.agents.defaults.model
+    p = config.get_provider(target_model)
+    if not (p and p.api_key) and not target_model.startswith("bedrock/"):
+        if not required:
+            raise ValueError(f"No API key configured for summary model {target_model}")
         console.print("[red]Error: No API key configured.[/red]")
         console.print("Set one in ~/.nanobot/config.json under providers section")
         raise typer.Exit(1)
     return LiteLLMProvider(
         api_key=p.api_key if p else None,
-        api_base=config.get_api_base(),
-        default_model=model,
+        api_base=config.get_api_base(target_model),
+        default_model=target_model,
         extra_headers=p.extra_headers if p else None,
-        provider_name=config.get_provider_name(),
+        provider_name=config.get_provider_name(target_model),
     )
+
+
+def _make_summary_provider(config, main_provider):
+    """Reuse the main provider or best-effort initialize the configured summary model."""
+    summary_model = config.agents.defaults.history_compression.summary_model
+    if summary_model is None:
+        return main_provider
+    try:
+        return _make_provider(config, summary_model, required=False)
+    except Exception as exc:
+        console.print(f"[yellow]Warning: Summary provider unavailable: {exc}[/yellow]")
+        return None
 
 
 # ============================================================================
@@ -331,6 +345,7 @@ def gateway(
     config = load_config()
     bus = MessageBus()
     provider = _make_provider(config)
+    summary_provider = _make_summary_provider(config, provider)
     session_manager = SessionManager()
 
     # Create cron service first (callback set after agent creation)
@@ -346,6 +361,8 @@ def gateway(
         max_iterations=config.agents.defaults.max_tool_iterations,
         max_tokens=config.agents.defaults.max_tokens,
         max_tool_result_tokens=config.agents.defaults.max_tool_result_tokens,
+        history_compression=config.agents.defaults.history_compression,
+        summary_provider=summary_provider,
         brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
@@ -452,6 +469,7 @@ def agent(
 
     bus = MessageBus()
     provider = _make_provider(config)
+    summary_provider = _make_summary_provider(config, provider)
 
     if logs:
         logger.enable("nanobot")
@@ -466,6 +484,8 @@ def agent(
         max_iterations=config.agents.defaults.max_tool_iterations,
         max_tokens=config.agents.defaults.max_tokens,
         max_tool_result_tokens=config.agents.defaults.max_tool_result_tokens,
+        history_compression=config.agents.defaults.history_compression,
+        summary_provider=summary_provider,
         brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,

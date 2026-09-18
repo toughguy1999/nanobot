@@ -1,6 +1,6 @@
 """Configuration schema using Pydantic."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS
@@ -170,6 +170,27 @@ class ChannelsConfig(BaseModel):
     web: WebConfig = Field(default_factory=WebConfig)
 
 
+class HistoryCompressionConfig(BaseModel):
+    """Main-agent request-time history compression settings."""
+
+    idle_cleanup_after_seconds: int = Field(default=3600, gt=0)
+    keep_tool_rounds: int = Field(default=3, ge=0)
+    keep_reasoning_blocks: int = Field(default=1, ge=0)
+
+    threshold_tokens: int = Field(default=200000, gt=0)
+    keep_user_turns: int = Field(default=3, ge=1)
+    recent_budget_ratio: float = Field(default=0.30, gt=0, le=1)
+    summary_budget_ratio: float = Field(default=0.10, gt=0, le=1)
+    summary_model: str | None = None
+
+    @field_validator("summary_model")
+    @classmethod
+    def validate_summary_model(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("summary_model must be null or a non-empty model name")
+        return value
+
+
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
     model: str = "anthropic/claude-opus-4-5"
@@ -177,6 +198,9 @@ class AgentDefaults(BaseModel):
     temperature: float = 0.7
     max_tool_iterations: int = 100
     max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS
+    history_compression: HistoryCompressionConfig = Field(
+        default_factory=HistoryCompressionConfig
+    )
 
 
 class AgentsConfig(BaseModel):

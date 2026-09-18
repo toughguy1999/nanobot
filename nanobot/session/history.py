@@ -66,13 +66,17 @@ HistoryRecord: TypeAlias = (
 )
 
 
-def to_llm_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def to_llm_messages(
+    history: list[dict[str, Any]],
+    *,
+    resolve_images: bool = True,
+) -> list[dict[str, Any]]:
     """Project canonical records directly into provider chat messages."""
     messages: list[dict[str, Any]] = []
     for record in history:
         role = record.get("role")
         if role == "system":
-            content = _llm_content(record.get("content", ""))
+            content = _llm_content(record.get("content", ""), resolve_images=resolve_images)
             messages.append({
                 "role": "user",
                 "content": _append_agent_status(f"[System: {content}]", record),
@@ -80,7 +84,10 @@ def to_llm_messages(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
         elif role == "user":
             messages.append({
                 "role": "user",
-                "content": _append_agent_status(_llm_content(record.get("content", "")), record),
+                "content": _append_agent_status(
+                    _llm_content(record.get("content", ""), resolve_images=resolve_images),
+                    record,
+                ),
             })
         elif role == "assistant":
             message: dict[str, Any] = {
@@ -170,7 +177,11 @@ def _require(record: dict[str, Any], *fields: str) -> None:
         raise ValueError(f"history record requires {', '.join(missing)}")
 
 
-def _llm_content(content: object) -> str | list[dict[str, Any]]:
+def _llm_content(
+    content: object,
+    *,
+    resolve_images: bool,
+) -> str | list[dict[str, Any]]:
     if not isinstance(content, list):
         return str(content) if content is not None else ""
 
@@ -179,7 +190,7 @@ def _llm_content(content: object) -> str | list[dict[str, Any]]:
     for item in content:
         if not isinstance(item, dict):
             continue
-        if item.get("type") == "image_url":
+        if resolve_images and item.get("type") == "image_url":
             image_url = item.get("image_url")
             if isinstance(image_url, dict) and isinstance(image_url.get("blob"), dict):
                 try:

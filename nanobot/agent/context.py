@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+from nanobot.agent.compress.prompts import history_summary_message
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.prompts import get_basic_system_prompt
 from nanobot.agent.skills import SkillsLoader
@@ -53,11 +54,16 @@ class ContextBuilder:
         llm_history: list[dict[str, Any]],
         channel: str | None = None,
         chat_id: str | None = None,
+        history_summary: str | None = None,
+        system_prompt: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build provider messages from already-converted LLM history."""
         messages: list[dict[str, Any]] = []
-        system_prompt = self.build_system_prompt(channel=channel)
+        if system_prompt is None:
+            system_prompt = self.build_system_prompt(channel=channel)
         messages.append({"role": "system", "content": system_prompt})
+        if history_summary is not None:
+            messages.append(history_summary_message(history_summary))
         messages.extend(llm_history)
         return messages
 

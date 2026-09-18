@@ -10,6 +10,14 @@ from typing import Any
 
 from loguru import logger
 
+from nanobot.session.compression import (
+    CompressionState,
+    compression_state_from_dict,
+    compression_state_to_dict,
+    project_effective_records,
+    validate_compression_state,
+    validate_compression_transition,
+)
 from nanobot.session.history import to_llm_messages, validate_history_record
 from nanobot.utils.helpers import PROJECT_ROOT, ensure_dir, safe_filename
 
@@ -23,6 +31,7 @@ class Session:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
+    compression: CompressionState = field(default_factory=CompressionState)
 
     def add_message(
         self,
@@ -74,11 +83,16 @@ class Session:
         )
 
     def get_llm_history(self) -> list[dict[str, Any]]:
-        """Project all saved canonical records without trimming history."""
-        return to_llm_messages(self.messages)
+        """Project the effective saved records into provider messages."""
+        return to_llm_messages(self.get_effective_records())
+
+    def get_effective_records(self) -> list[dict[str, Any]]:
+        """Return effective record copies before provider image resolution."""
+        return project_effective_records(self.messages, self.compression)
 
     def clear(self) -> None:
         self.messages = []
+        self.compression = CompressionState()
         self.updated_at = datetime.now()
 
 
@@ -115,12 +129,20 @@ class SessionManager:
             metadata_record = _validate_metadata_record(json.loads(lines[0]))
             messages = [dict(validate_history_record(json.loads(line))) for line in lines[1:]]
             created_at = datetime.fromisoformat(metadata_record["created_at"])
+            metadata = dict(metadata_record["metadata"])
+            raw_compression = metadata.pop("compression", None)
+            compression = (
+                CompressionState()
+                if raw_compression is None
+                else compression_state_from_dict(raw_compression, messages)
+            )
             return Session(
                 key=key,
                 messages=messages,
                 created_at=created_at,
                 updated_at=datetime.fromtimestamp(path.stat().st_mtime),
-                metadata=dict(metadata_record["metadata"]),
+                metadata=metadata,
+                compression=compression,
             )
         except Exception as exc:
             logger.warning(f"Failed to load session {key}: {exc}")
@@ -139,9 +161,17 @@ class SessionManager:
         ensure_dir(self.sessions_dir)
         path = self._get_session_path(session.key)
         temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        metadata = dict(session.metadata)
+        metadata.pop("compression", None)
+        validate_compression_state(session.compression, session.messages)
+        if not session.compression.is_empty:
+            metadata["compression"] = compression_state_to_dict(
+                session.compression,
+                session.messages,
+            )
         metadata_record = {
             "created_at": session.created_at.isoformat(),
-            "metadata": session.metadata,
+            "metadata": metadata,
         }
         _validate_metadata_record(metadata_record)
         for message in session.messages:
@@ -167,18 +197,23 @@ class SessionManager:
         ensure_dir(self.sessions_dir)
         path = self._get_session_path(session.key)
         if not path.exists():
-            self.save(
-                Session(
-                    key=session.key,
-                    created_at=session.created_at,
-                    updated_at=session.updated_at,
-                    metadata=session.metadata,
-                )
-            )
+            self.save(session)
+            return
         with path.open("a", encoding="utf-8", newline="\n") as file:
             file.write(json.dumps(record, ensure_ascii=False) + "\n")
         session.updated_at = datetime.fromtimestamp(path.stat().st_mtime)
         self._cache[session.key] = session
+
+    def commit_compression(self, session: Session, candidate: CompressionState) -> None:
+        """Atomically persist a monotonic candidate, restoring memory on failure."""
+        validate_compression_transition(session.compression, candidate, session.messages)
+        previous = session.compression
+        session.compression = candidate
+        try:
+            self.save(session)
+        except BaseException:
+            session.compression = previous
+            raise
 
     def ensure_session_title(self, key: str) -> str | None:
         session = self.get(key, refresh=True)
@@ -202,6 +237,8 @@ class SessionManager:
         return title
 
     def update_metadata(self, key: str, updates: dict[str, Any]) -> Session | None:
+        if "compression" in updates:
+            raise ValueError("compression metadata must be updated through commit_compression")
         session = self.get(key, refresh=True)
         if session is None:
             return None
@@ -234,6 +271,7 @@ class SessionManager:
                 if channel and not key.startswith(f"{channel}:"):
                     continue
                 metadata = dict(data["metadata"])
+                metadata.pop("compression", None)
                 if (
                     backfill_session_title
                     and key.startswith("web:")
