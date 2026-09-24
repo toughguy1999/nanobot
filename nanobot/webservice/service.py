@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from nanobot.session.manager import Session, SessionManager
+from nanobot.harness.session.manager import Session, SessionManager
 from nanobot.webservice.attachments import DEFAULT_ATTACHMENT_PROMPT, WebAttachmentStore
 from nanobot.webservice.errors import AttachmentError, BadRequestError, NotFoundError
 from nanobot.webservice.schemas import PreparedWebMessage

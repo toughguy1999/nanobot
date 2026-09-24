@@ -3,10 +3,10 @@
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.compress.prompts import history_summary_message
-from nanobot.agent.memory import MemoryStore
-from nanobot.agent.prompts import get_basic_system_prompt
-from nanobot.agent.skills import SkillsLoader
+from nanobot.harness.compress.prompts import history_summary_message
+from nanobot.harness.memory import MemoryStore
+from nanobot.harness.prompts import get_basic_system_prompt
+from nanobot.harness.skills import SkillsLoader
 
 
 class ContextBuilder:

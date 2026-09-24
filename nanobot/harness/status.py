@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable
 from html import escape
 
-from nanobot.session.manager import Session
+from nanobot.harness.session.manager import Session
 
 STATUS_LABELS = {"pending": "待开始", "in_progress": "进行中", "completed": "已完成"}
 

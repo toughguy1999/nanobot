@@ -7,11 +7,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from nanobot.agent.compress.history import build_idle_cleanup_candidate
+from nanobot.harness.compress.history import build_idle_cleanup_candidate
 from nanobot.config.loader import load_config, save_config
 from nanobot.config.schema import Config, HistoryCompressionConfig
 from nanobot.providers.base import LLMResponse, ToolCallRequest
-from nanobot.session.manager import Session
+from nanobot.harness.session.manager import Session
 from tests.test_agent_todo import ScriptedProvider, process, setup_loop
 
 
@@ -234,7 +234,7 @@ class CleanupLoopTests(unittest.IsolatedAsyncioTestCase):
         base = datetime.now()
         loop.history_compression.clock = Mock(side_effect=[base, base + timedelta(seconds=20)])
 
-        with patch("nanobot.agent.loop.publish_context") as publish, patch.object(
+        with patch("nanobot.harness.loop.publish_context") as publish, patch.object(
             loop.history_compression,
             "prepare_for_request",
             wraps=loop.history_compression.prepare_for_request,

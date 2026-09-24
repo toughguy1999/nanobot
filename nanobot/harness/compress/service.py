@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.agent.compress.history import build_idle_cleanup_candidate, build_summary_plan
-from nanobot.agent.compress.prompts import build_summary_messages
-from nanobot.agent.compress.token_estimate import estimate_payload_tokens, estimate_tokens
+from nanobot.harness.compress.history import build_idle_cleanup_candidate, build_summary_plan
+from nanobot.harness.compress.prompts import build_summary_messages
+from nanobot.harness.compress.token_estimate import estimate_payload_tokens, estimate_tokens
 from nanobot.providers.base import LLMProvider
-from nanobot.session.manager import Session, SessionManager
+from nanobot.harness.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from nanobot.config.schema import HistoryCompressionConfig

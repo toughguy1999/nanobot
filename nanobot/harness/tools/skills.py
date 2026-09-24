@@ -3,8 +3,8 @@
 from typing import Any
 from xml.sax.saxutils import escape
 
-from nanobot.agent.skills import SkillsLoader
-from nanobot.agent.tools.base import Tool
+from nanobot.harness.skills import SkillsLoader
+from nanobot.harness.tools.base import Tool
 
 
 class LoadSkillTool(Tool):

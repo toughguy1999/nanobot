@@ -4,7 +4,7 @@ import platform
 from datetime import date
 from pathlib import Path
 
-from nanobot.agent.tools.shell import get_execution_shell
+from nanobot.harness.tools.shell import get_execution_shell
 
 
 def get_basic_system_prompt(

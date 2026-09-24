@@ -9,7 +9,7 @@ from typing import Any, Literal, TypedDict
 from loguru import logger
 
 from nanobot.bus.events import InboundAttachment
-from nanobot.session.blobs import SessionBlobStore
+from nanobot.harness.session.blobs import SessionBlobStore
 
 AttachmentType = Literal["image", "text", "unknown"]
 

@@ -6,15 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from nanobot.agent.compress.service import HistoryCompressionService
-from nanobot.agent.compress.token_estimate import (
+from nanobot.harness.compress.service import HistoryCompressionService
+from nanobot.harness.compress.token_estimate import (
     IMAGE_TOKEN_ESTIMATE,
     estimate_payload_tokens,
 )
 from nanobot.config.schema import HistoryCompressionConfig
 from nanobot.providers.base import LLMResponse
-from nanobot.session.history import to_llm_messages
-from nanobot.session.manager import SessionManager
+from nanobot.harness.session.history import to_llm_messages
+from nanobot.harness.session.manager import SessionManager
 from tests.test_agent_todo import ScriptedProvider, process, setup_loop
 
 
@@ -56,7 +56,7 @@ class StructuredEstimateTests(unittest.TestCase):
             "agent_status": "status",
         }]
         with patch(
-            "nanobot.session.history.SessionBlobStore.read_data_url",
+            "nanobot.harness.session.history.SessionBlobStore.read_data_url",
             side_effect=AssertionError("estimation must not load blobs"),
         ):
             estimate = estimate_payload_tokens(
@@ -68,7 +68,7 @@ class StructuredEstimateTests(unittest.TestCase):
 class FullEstimateTests(unittest.TestCase):
     def test_service_always_estimates_the_actual_messages_and_tools(self):
         with tempfile.TemporaryDirectory() as directory:
-            with patch("nanobot.session.manager.PROJECT_ROOT", Path(directory)):
+            with patch("nanobot.harness.session.manager.PROJECT_ROOT", Path(directory)):
                 sessions = SessionManager()
             service = HistoryCompressionService(HistoryCompressionConfig(), sessions)
             messages = [{"role": "system", "content": "system"}]

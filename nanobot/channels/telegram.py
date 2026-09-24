@@ -11,7 +11,7 @@ from telegram import Audio, BotCommand, Document, PhotoSize, Update, Voice
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
-from nanobot.agent.attachments import inbound_attachment_from_path
+from nanobot.harness.attachments import inbound_attachment_from_path
 from nanobot.bus.events import InboundAttachment, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel

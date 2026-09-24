@@ -2,7 +2,7 @@
 
 from typing import Any, Awaitable, Callable
 
-from nanobot.agent.tools.base import Tool
+from nanobot.harness.tools.base import Tool
 from nanobot.bus.events import OutboundMessage
 
 

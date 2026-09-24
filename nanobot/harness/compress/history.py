@@ -7,9 +7,9 @@ from datetime import datetime
 from math import floor
 from typing import Any
 
-from nanobot.agent.compress.token_estimate import estimate_payload_tokens
-from nanobot.session.compression import CompressionState, project_effective_records
-from nanobot.session.history import to_llm_messages
+from nanobot.harness.compress.token_estimate import estimate_payload_tokens
+from nanobot.harness.session.compression import CompressionState, project_effective_records
+from nanobot.harness.session.history import to_llm_messages
 
 
 @dataclass(frozen=True, slots=True)

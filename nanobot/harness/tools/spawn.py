@@ -2,10 +2,10 @@
 
 from typing import TYPE_CHECKING, Any
 
-from nanobot.agent.tools.base import Tool
+from nanobot.harness.tools.base import Tool
 
 if TYPE_CHECKING:
-    from nanobot.agent.subagent import SubagentManager
+    from nanobot.harness.subagent import SubagentManager
 
 
 class SpawnTool(Tool):

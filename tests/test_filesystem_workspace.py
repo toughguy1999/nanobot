@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.filesystem import EditFileTool, WriteFileTool
+from nanobot.harness.loop import AgentLoop
+from nanobot.harness.tools.filesystem import EditFileTool, WriteFileTool
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 

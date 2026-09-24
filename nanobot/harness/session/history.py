@@ -6,7 +6,7 @@ from typing import Any, Literal, NotRequired, TypeAlias, TypedDict, cast
 
 from loguru import logger
 
-from nanobot.session.blobs import SessionBlobStore
+from nanobot.harness.session.blobs import SessionBlobStore
 
 
 class ToolFunction(TypedDict):

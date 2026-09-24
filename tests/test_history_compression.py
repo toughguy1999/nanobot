@@ -7,13 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nanobot.agent.context import ContextBuilder
-from nanobot.session.compression import (
+from nanobot.harness.context import ContextBuilder
+from nanobot.harness.session.compression import (
     TOOL_RESULT_CLEARED_CONTENT,
     CompressionState,
     compression_state_to_dict,
 )
-from nanobot.session.manager import SessionManager
+from nanobot.harness.session.manager import SessionManager
 from nanobot.webservice.attachments import WebAttachmentStore
 from nanobot.webservice.service import WebService
 
@@ -31,12 +31,12 @@ class CompressionPersistenceTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
-        with patch("nanobot.session.manager.PROJECT_ROOT", self.root):
+        with patch("nanobot.harness.session.manager.PROJECT_ROOT", self.root):
             self.sessions = SessionManager()
         self.session = self.sessions.get_or_create("web:one")
 
     def reload(self):
-        with patch("nanobot.session.manager.PROJECT_ROOT", self.root):
+        with patch("nanobot.harness.session.manager.PROJECT_ROOT", self.root):
             return SessionManager().get("web:one")
 
     def add_records(self):
@@ -107,7 +107,7 @@ class CompressionPersistenceTests(unittest.TestCase):
         self.sessions.commit_compression(self.session, state)
 
         with patch(
-            "nanobot.session.history.SessionBlobStore.read_data_url",
+            "nanobot.harness.session.history.SessionBlobStore.read_data_url",
             return_value="data:image/png;base64,current",
         ) as read_blob:
             projected = self.session.get_llm_history()
@@ -125,7 +125,7 @@ class CompressionPersistenceTests(unittest.TestCase):
         self.assertEqual(reloaded.compression, state)
         self.assertEqual(reloaded.messages, original)
         with patch(
-            "nanobot.session.history.SessionBlobStore.read_data_url",
+            "nanobot.harness.session.history.SessionBlobStore.read_data_url",
             return_value="data:image/png;base64,current",
         ):
             self.assertEqual(reloaded.get_llm_history(), projected)
@@ -174,7 +174,7 @@ class CompressionPersistenceTests(unittest.TestCase):
                     "\n".join([json.dumps(changed), *lines[1:]]) + "\n",
                     encoding="utf-8",
                 )
-                with patch("nanobot.session.manager.PROJECT_ROOT", self.root):
+                with patch("nanobot.harness.session.manager.PROJECT_ROOT", self.root):
                     with self.assertRaises(ValueError):
                         SessionManager().get("web:one")
 
@@ -219,7 +219,7 @@ class CompressionPersistenceTests(unittest.TestCase):
         candidate = CompressionState(
             cleared_tool_through_id=records["current_tool"]["id"],
         )
-        with patch("nanobot.session.manager.os.replace", side_effect=OSError("disk full")):
+        with patch("nanobot.harness.session.manager.os.replace", side_effect=OSError("disk full")):
             with self.assertRaises(OSError):
                 self.sessions.commit_compression(self.session, candidate)
         self.assertEqual(self.session.compression, CompressionState())

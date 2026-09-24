@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
-from nanobot.agent.prompts import get_file_command_guidelines, get_skill_usage_rules
-from nanobot.agent.skills import SkillsLoader
-from nanobot.agent.tools.filesystem import EditFileTool, WriteFileTool
-from nanobot.agent.tools.rag import AbsurdNovelKnowledgeSearchTool
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.shell import ExecTool, get_execution_shell
-from nanobot.agent.tools.skills import LoadSkillTool
-from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
+from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
+from nanobot.harness.prompts import get_file_command_guidelines, get_skill_usage_rules
+from nanobot.harness.skills import SkillsLoader
+from nanobot.harness.tools.filesystem import EditFileTool, WriteFileTool
+from nanobot.harness.tools.rag import AbsurdNovelKnowledgeSearchTool
+from nanobot.harness.tools.registry import ToolRegistry
+from nanobot.harness.tools.shell import ExecTool, get_execution_shell
+from nanobot.harness.tools.skills import LoadSkillTool
+from nanobot.harness.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider

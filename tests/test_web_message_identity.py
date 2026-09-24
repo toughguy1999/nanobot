@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from nanobot.agent.loop import AgentLoop
+from nanobot.harness.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
-from nanobot.session.manager import SessionManager
+from nanobot.harness.session.manager import SessionManager
 from nanobot.webservice.attachments import WebAttachmentStore
 from nanobot.webservice.errors import BadRequestError
 from nanobot.webservice.service import WebService
@@ -18,7 +18,7 @@ class WebMessageIdentityTests(unittest.IsolatedAsyncioTestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
-        with patch("nanobot.session.manager.PROJECT_ROOT", root):
+        with patch("nanobot.harness.session.manager.PROJECT_ROOT", root):
             self.sessions = SessionManager()
         self.service = WebService(self.sessions, WebAttachmentStore(root / "attachments"))
         self.loop = AgentLoop.__new__(AgentLoop)

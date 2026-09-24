@@ -8,15 +8,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from nanobot.agent.compress.history import build_summary_plan
-from nanobot.agent.compress.prompts import build_summary_messages
-from nanobot.agent.compress.service import HistoryCompressionService
-from nanobot.agent.loop import AgentLoop
+from nanobot.harness.compress.history import build_summary_plan
+from nanobot.harness.compress.prompts import build_summary_messages
+from nanobot.harness.compress.service import HistoryCompressionService
+from nanobot.harness.loop import AgentLoop
 from nanobot.bus.queue import MessageBus
 from nanobot.cli import commands
 from nanobot.config.schema import Config, HistoryCompressionConfig
 from nanobot.providers.base import LLMResponse, ToolCallRequest
-from nanobot.session.manager import Session, SessionManager
+from nanobot.harness.session.manager import Session, SessionManager
 from tests.test_agent_todo import ScriptedProvider, process, setup_loop
 
 
@@ -156,7 +156,7 @@ class SummaryPromptTests(unittest.TestCase):
             "content": "[历史工具结果已清理]",
         }]
         with patch(
-            "nanobot.session.history.SessionBlobStore.read_data_url",
+            "nanobot.harness.session.history.SessionBlobStore.read_data_url",
             side_effect=AssertionError("must not read blobs"),
         ):
             messages = build_summary_messages(
@@ -181,7 +181,7 @@ class SummaryServiceTests(unittest.IsolatedAsyncioTestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
-        with patch("nanobot.session.manager.PROJECT_ROOT", root):
+        with patch("nanobot.harness.session.manager.PROJECT_ROOT", root):
             sessions = SessionManager()
         session = sessions.get_or_create("cli:one")
         add_turn(session, "OLD_RAW", size=80)
@@ -244,7 +244,7 @@ class SummaryServiceTests(unittest.IsolatedAsyncioTestCase):
             tool_calls=[ToolCallRequest("call", "danger", "{}", {})],
         )
         sessions, session, provider, service = self.setup_service(response)
-        with patch("nanobot.agent.compress.service.logger.warning") as warning:
+        with patch("nanobot.harness.compress.service.logger.warning") as warning:
             self.assertTrue(await service.maybe_summarize(
                 session,
                 request_tokens=21,
@@ -343,7 +343,7 @@ class SummaryLoopAndProviderTests(unittest.IsolatedAsyncioTestCase):
             loop.history_compression,
             "estimate_request",
             side_effect=estimate,
-        ), patch("nanobot.agent.loop.publish_context") as publish:
+        ), patch("nanobot.harness.loop.publish_context") as publish:
             await process(loop, text="CURRENT")
         self.assertEqual(len(summary.calls), 1)
         self.assertEqual(len(estimates), 2)
@@ -388,7 +388,7 @@ class SummaryLoopAndProviderTests(unittest.IsolatedAsyncioTestCase):
             tool_call_id="old-call", name="missing", content="SECRET_TOOL_RESULT",
         )
         sessions.save(session)
-        with patch("nanobot.agent.loop.publish_context") as publish:
+        with patch("nanobot.harness.loop.publish_context") as publish:
             await process(loop, text="current")
         self.assertEqual(len(summary.calls), 1)
         self.assertNotIn("SECRET_TOOL_RESULT", str(main.calls[0]["messages"]))

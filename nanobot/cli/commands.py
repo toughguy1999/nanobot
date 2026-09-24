@@ -326,8 +326,8 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.agent.tools.mcp import MCPTool
+    from nanobot.harness.loop import AgentLoop
+    from nanobot.harness.tools.mcp import MCPTool
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
     from nanobot.config.loader import get_data_dir, load_config
@@ -335,7 +335,7 @@ def gateway(
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
     from nanobot.mcp.manager import MCPManager
-    from nanobot.session.manager import SessionManager
+    from nanobot.harness.session.manager import SessionManager
 
     if verbose:
         import logging
@@ -459,8 +459,8 @@ def agent(
     """Interact with the agent directly."""
     from loguru import logger
 
-    from nanobot.agent.loop import AgentLoop
-    from nanobot.agent.tools.mcp import MCPTool
+    from nanobot.harness.loop import AgentLoop
+    from nanobot.harness.tools.mcp import MCPTool
     from nanobot.bus.queue import MessageBus
     from nanobot.config.loader import load_config
     from nanobot.mcp.manager import MCPManager

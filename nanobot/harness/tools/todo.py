@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
-from nanobot.session.manager import Session, SessionManager
+from nanobot.harness.tools.base import Tool
+from nanobot.harness.session.manager import Session, SessionManager
 
 
 class TodoEditTool(Tool):

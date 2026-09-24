@@ -7,13 +7,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from xml.etree import ElementTree as ET
 
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.prompts import get_skill_usage_rules
-from nanobot.agent.skills import SkillsLoader
-from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.filesystem import EditFileTool
-from nanobot.agent.tools.skills import LoadSkillTool
+from nanobot.harness.context import ContextBuilder
+from nanobot.harness.loop import AgentLoop
+from nanobot.harness.prompts import get_skill_usage_rules
+from nanobot.harness.skills import SkillsLoader
+from nanobot.harness.subagent import SubagentManager
+from nanobot.harness.tools.filesystem import EditFileTool
+from nanobot.harness.tools.skills import LoadSkillTool
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
@@ -43,16 +43,16 @@ class SkillLoadingChecks(unittest.IsolatedAsyncioTestCase):
                    'metadata: {"nanobot":{"requires":{"bins":["missing-cli"],'
                    '"env":["SKILL_TEST_TOKEN"]}}}\n---\n' + body)
         self.skill('fallback', 'plain body')
-        with patch('nanobot.agent.skills.shutil.which', side_effect=AssertionError):
+        with patch('nanobot.harness.skills.shutil.which', side_effect=AssertionError):
             self.assertEqual(self.loader.build_skills_summary(),
                              '-example： A & <B>\n-fallback： fallback')
-        with patch.dict(os.environ, {}, clear=True), patch('nanobot.agent.skills.shutil.which', return_value=None):
+        with patch.dict(os.environ, {}, clear=True), patch('nanobot.harness.skills.shutil.which', return_value=None):
             result = ET.fromstring(await self.tool.execute('example'))
         self.assertEqual(result.findtext('body'), body)
         self.assertEqual(result.findtext('missing_requirements/bin'), 'missing-cli')
         self.assertEqual(result.findtext('missing_requirements/env'), 'SKILL_TEST_TOKEN')
         self.assertTrue(Path(result.findtext('directory')).is_absolute())
-        with patch.dict(os.environ, {'SKILL_TEST_TOKEN': 'secret-value'}), patch('nanobot.agent.skills.shutil.which', return_value='/bin/cli'):
+        with patch.dict(os.environ, {'SKILL_TEST_TOKEN': 'secret-value'}), patch('nanobot.harness.skills.shutil.which', return_value='/bin/cli'):
             text = await self.tool.execute('example')
         self.assertNotIn('secret-value', text)
         self.assertIsNone(ET.fromstring(text).find('missing_requirements'))
@@ -97,7 +97,7 @@ class SkillLoadingChecks(unittest.IsolatedAsyncioTestCase):
         memory = self.workspace / 'memory'
         memory.mkdir()
         (memory / 'MEMORY.md').write_text('LONG_TERM_MARKER', encoding='utf-8')
-        with patch('nanobot.agent.skills.BUILTIN_SKILLS_DIR', self.builtin):
+        with patch('nanobot.harness.skills.BUILTIN_SKILLS_DIR', self.builtin):
             context = ContextBuilder(self.workspace, restrict_to_workspace=True)
             provider = AsyncMock()
             provider.get_default_model = lambda: 'test-model'

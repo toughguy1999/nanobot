@@ -10,13 +10,13 @@ from xml.etree import ElementTree
 
 from test_agent_todo import ScriptedProvider, item, process, setup_loop, tool_response
 
-import nanobot.agent.loop as loop_module
-from nanobot.agent.status import AgentStatus
-from nanobot.agent.tools.base import Tool
+import nanobot.harness.loop as loop_module
+from nanobot.harness.status import AgentStatus
+from nanobot.harness.tools.base import Tool
 from nanobot.bus.events import InboundMessage
 from nanobot.providers.base import LLMResponse, ToolCallRequest
-from nanobot.session.history import to_llm_messages, validate_history_record
-from nanobot.session.manager import Session, SessionManager
+from nanobot.harness.session.history import to_llm_messages, validate_history_record
+from nanobot.harness.session.manager import Session, SessionManager
 from nanobot.webservice.attachments import WebAttachmentStore
 from nanobot.webservice.serialization import serialize_assistant_record, serialize_user_record
 from nanobot.webservice.service import WebService
@@ -93,7 +93,7 @@ class StatusRecordTests(unittest.TestCase):
 class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
     def clock(self, *times):
         clock = Mock(side_effect=times)
-        factory = patch("nanobot.agent.loop.AgentStatus", side_effect=lambda: AgentStatus(clock))
+        factory = patch("nanobot.harness.loop.AgentStatus", side_effect=lambda: AgentStatus(clock))
         factory.start()
         self.addCleanup(factory.stop)
         return clock
@@ -123,7 +123,7 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         original = copy.deepcopy(records)
         session.metadata["todos"] = [item("future")]
         sessions.save(session)
-        with patch("nanobot.session.manager.PROJECT_ROOT", root):
+        with patch("nanobot.harness.session.manager.PROJECT_ROOT", root):
             reloaded = SessionManager().get("cli:one")
         # The provider's second input contains every record except the final reply.
         self.assertEqual(provider.calls[1]["messages"][1:], to_llm_messages(reloaded.messages[:-1]))
@@ -153,7 +153,7 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
                 raise OSError("disk full")
             return real_replace(source, destination)
 
-        with patch("nanobot.session.manager.os.replace", side_effect=fail_todo_save):
+        with patch("nanobot.harness.session.manager.os.replace", side_effect=fail_todo_save):
             await process(loop)
         record = next(r for r in session.messages if r["role"] == "tool")
         self.assertIn("Error", record["content"])
@@ -170,7 +170,7 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         self.clock(100, 102, 500, 501, 900, 903)
         await process(loop)
         await process(loop, system=True)
-        with patch("nanobot.session.manager.PROJECT_ROOT", root):
+        with patch("nanobot.harness.session.manager.PROJECT_ROOT", root):
             loop.sessions = SessionManager()
         await process(loop)
         records = [r for r in loop.sessions.get("cli:one").messages if r["role"] != "assistant"]
@@ -181,7 +181,7 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(provider.calls[1]["messages"][-1]["content"].endswith(records[1]["agent_status"]))
 
     async def test_processing_time_included_but_message_age_not_counted(self):
-        from nanobot.agent.attachments import stabilize_user_message
+        from nanobot.harness.attachments import stabilize_user_message
 
         provider = ScriptedProvider(LLMResponse("done"))
         loop, sessions, _ = setup_loop(self, provider)
@@ -194,8 +194,8 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
             return stabilize_user_message(**kwargs)
 
         message = InboundMessage("cli", "user", "one", "hello")
-        with patch("nanobot.agent.loop.AgentStatus", side_effect=status_factory), patch(
-            "nanobot.agent.loop.stabilize_user_message", side_effect=stabilize,
+        with patch("nanobot.harness.loop.AgentStatus", side_effect=status_factory), patch(
+            "nanobot.harness.loop.stabilize_user_message", side_effect=stabilize,
         ):
             await loop._process_message(message, emit_events=False)
         self.assertIn("本轮对话已用时间：4 秒", sessions.get("cli:one").messages[0]["agent_status"])
@@ -212,7 +212,7 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
             provider = ScriptedProvider(ending, LLMResponse("recovered"))
             loop, sessions, _ = setup_loop(self, provider)
             clock = Mock(side_effect=[10, 11, 500, 502])
-            with patch("nanobot.agent.loop.AgentStatus", side_effect=lambda: AgentStatus(clock)):
+            with patch("nanobot.harness.loop.AgentStatus", side_effect=lambda: AgentStatus(clock)):
                 if isinstance(ending, asyncio.CancelledError):
                     with self.assertRaises(asyncio.CancelledError):
                         await process(loop)

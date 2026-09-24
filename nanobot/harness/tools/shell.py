@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from nanobot.harness.tools.base import Tool
 
 # Best-effort text checks, not a PowerShell parser or sandbox. Recognize native
 # cmdlets, common deletion aliases, and Windows utilities callable from pwsh.

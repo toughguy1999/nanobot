@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS
+from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS
 
 
 class WhatsAppConfig(BaseModel):

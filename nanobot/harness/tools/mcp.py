@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from nanobot.harness.tools.base import Tool
 from nanobot.mcp.manager import MCPManager
 from nanobot.mcp.types import DiscoveredMCPTool, NormalizedMCPResult
 

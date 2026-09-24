@@ -10,7 +10,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.session.compression import (
+from nanobot.harness.session.compression import (
     CompressionState,
     compression_state_from_dict,
     compression_state_to_dict,
@@ -18,7 +18,7 @@ from nanobot.session.compression import (
     validate_compression_state,
     validate_compression_transition,
 )
-from nanobot.session.history import to_llm_messages, validate_history_record
+from nanobot.harness.session.history import to_llm_messages, validate_history_record
 from nanobot.utils.helpers import PROJECT_ROOT, ensure_dir, safe_filename
 
 

@@ -1,6 +1,6 @@
 """Deterministic, line-aware head/tail clipping of one tool body."""
 
-from nanobot.agent.compress.token_estimate import character_weight, estimate_tokens
+from nanobot.harness.compress.token_estimate import character_weight, estimate_tokens
 
 DEFAULT_MAX_TOOL_RESULT_TOKENS = 4000
 CLIP_NOTICE = "\n\n[超出预算部分已裁剪]\n\n"

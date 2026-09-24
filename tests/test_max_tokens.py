@@ -6,13 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from nanobot.agent.loop import AgentLoop
+from nanobot.harness.loop import AgentLoop
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.loader import load_config
 from nanobot.providers.base import LLMResponse
 from nanobot.providers.litellm_provider import LiteLLMProvider
-from nanobot.session.manager import SessionManager
+from nanobot.harness.session.manager import SessionManager
 
 
 class MaxTokensTests(unittest.IsolatedAsyncioTestCase):
@@ -26,14 +26,14 @@ class MaxTokensTests(unittest.IsolatedAsyncioTestCase):
                 }), encoding='utf-8')
                 config = load_config(config_path)
                 provider = LiteLLMProvider(default_model='test-model')
-                with patch('nanobot.session.manager.PROJECT_ROOT', root):
+                with patch('nanobot.harness.session.manager.PROJECT_ROOT', root):
                     sessions = SessionManager()
                 loop = AgentLoop(
                     MessageBus(), provider, root, session_manager=sessions,
                     max_tokens=config.agents.defaults.max_tokens,
                 )
                 with (
-                    patch('nanobot.agent.loop.publish_context'),
+                    patch('nanobot.harness.loop.publish_context'),
                     patch('nanobot.providers.litellm_provider.acompletion',
                           new_callable=AsyncMock) as completion,
                     patch.object(provider, '_parse_response',

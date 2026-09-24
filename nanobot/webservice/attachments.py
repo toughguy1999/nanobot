@@ -13,7 +13,7 @@ from typing import Any
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from nanobot.agent.attachments import (
+from nanobot.harness.attachments import (
     SUPPORTED_ATTACHMENT_EXTENSIONS,
     classify_attachment,
 )

@@ -7,27 +7,27 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from nanobot.agent.attachments import stabilize_user_message
-from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
-from nanobot.agent.compress.service import HistoryCompressionService
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.status import AgentStatus
-from nanobot.agent.subagent import SubagentManager
-from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.tools.filesystem import EditFileTool, WriteFileTool
-from nanobot.agent.tools.message import MessageTool
-from nanobot.agent.tools.rag import AbsurdNovelKnowledgeSearchTool
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.skills import LoadSkillTool
-from nanobot.agent.tools.spawn import SpawnTool
-from nanobot.agent.tools.todo import TodoEditTool
-from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
+from nanobot.harness.attachments import stabilize_user_message
+from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
+from nanobot.harness.compress.service import HistoryCompressionService
+from nanobot.harness.context import ContextBuilder
+from nanobot.harness.status import AgentStatus
+from nanobot.harness.subagent import SubagentManager
+from nanobot.harness.tools.cron import CronTool
+from nanobot.harness.tools.filesystem import EditFileTool, WriteFileTool
+from nanobot.harness.tools.message import MessageTool
+from nanobot.harness.tools.rag import AbsurdNovelKnowledgeSearchTool
+from nanobot.harness.tools.registry import ToolRegistry
+from nanobot.harness.tools.shell import ExecTool
+from nanobot.harness.tools.skills import LoadSkillTool
+from nanobot.harness.tools.spawn import SpawnTool
+from nanobot.harness.tools.todo import TodoEditTool
+from nanobot.harness.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.devtools.llm_context import publish_context
+from nanobot.utils._debug import publish_context
 from nanobot.providers.base import LLMProvider
-from nanobot.session.manager import Session, SessionManager
+from nanobot.harness.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ExecToolConfig, HistoryCompressionConfig

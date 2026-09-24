@@ -6,7 +6,7 @@ import asyncio
 import json
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from nanobot.harness.tools.base import Tool
 from nanobot.rag import query_absurd_novel_knowledge_base
 
 

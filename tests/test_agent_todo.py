@@ -8,13 +8,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.todo import TodoEditTool
+from nanobot.harness.loop import AgentLoop
+from nanobot.harness.tools.registry import ToolRegistry
+from nanobot.harness.tools.todo import TodoEditTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from nanobot.session.manager import SessionManager
+from nanobot.harness.session.manager import SessionManager
 
 
 def item(content="work", status="in_progress"):
@@ -49,10 +49,10 @@ def setup_loop(test, provider):
     directory = tempfile.TemporaryDirectory()
     test.addCleanup(directory.cleanup)
     root = Path(directory.name)
-    with patch("nanobot.session.manager.PROJECT_ROOT", root):
+    with patch("nanobot.harness.session.manager.PROJECT_ROOT", root):
         sessions = SessionManager()
     # Keep context snapshots and all session writes inside this test's lifetime.
-    publisher = patch("nanobot.agent.loop.publish_context")
+    publisher = patch("nanobot.harness.loop.publish_context")
     publisher.start()
     test.addCleanup(publisher.stop)
     loop = AgentLoop(MessageBus(), provider, root, session_manager=sessions)
@@ -79,7 +79,7 @@ class TodoToolTests(unittest.IsolatedAsyncioTestCase):
         return await self.registry.execute("todoEdit", params)
 
     def reload(self):
-        with patch("nanobot.session.manager.PROJECT_ROOT", self.root):
+        with patch("nanobot.harness.session.manager.PROJECT_ROOT", self.root):
             return SessionManager().get("cli:one")
 
     async def test_replace_reorder_reopen_clear_and_detach_input(self):
@@ -119,7 +119,7 @@ class TodoToolTests(unittest.IsolatedAsyncioTestCase):
             self.sessions.save(self.session)
             previous = copy.deepcopy(self.session.metadata)
             # Fail the actual atomic replacement, after temporary data is written.
-            with patch("nanobot.session.manager.os.replace", side_effect=OSError("disk failure")):
+            with patch("nanobot.harness.session.manager.os.replace", side_effect=OSError("disk failure")):
                 self.assertIn("Error", await self.update({"todos": [item("new")]}))
             self.assertEqual(self.session.metadata, previous)
             self.assertEqual(self.reload().metadata, previous)
@@ -177,7 +177,7 @@ class TodoLoopTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     result = await process(loop)
                     self.assertIn("provider down", result.content)
-                with patch("nanobot.session.manager.PROJECT_ROOT", root):
+                with patch("nanobot.harness.session.manager.PROJECT_ROOT", root):
                     self.assertEqual(SessionManager().get("cli:one").metadata["todos"], [item()])
                 self.assertEqual(sessions.get("cli:one").metadata["todos"], [item()])
 

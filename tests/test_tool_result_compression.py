@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, Mock, patch
 from loguru import logger
 from test_agent_todo import ScriptedProvider, process, setup_loop
 
-from nanobot.agent.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
-from nanobot.agent.compress.token_estimate import estimate_tokens
-from nanobot.agent.compress.tool_result import CLIP_NOTICE
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.prompts import get_basic_system_prompt, get_file_command_guidelines
-from nanobot.agent.tools.filesystem import EditFileTool, WriteFileTool
-from nanobot.agent.tools.shell import ExecTool
+from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
+from nanobot.harness.compress.token_estimate import estimate_tokens
+from nanobot.harness.compress.tool_result import CLIP_NOTICE
+from nanobot.harness.loop import AgentLoop
+from nanobot.harness.prompts import get_basic_system_prompt, get_file_command_guidelines
+from nanobot.harness.tools.filesystem import EditFileTool, WriteFileTool
+from nanobot.harness.tools.shell import ExecTool
 from nanobot.config.loader import load_config
 from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMResponse, ToolCallRequest
@@ -80,9 +80,9 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
                 logs = []
                 sink = logger.add(lambda message: logs.append(str(message)))
                 self.addCleanup(logger.remove, sink)
-                target = 'nanobot.agent.tools.registry.ToolRegistry.execute' if mode == 'fallback' else 'nanobot.agent.tools.shell.ExecTool.execute'
+                target = 'nanobot.harness.tools.registry.ToolRegistry.execute' if mode == 'fallback' else 'nanobot.harness.tools.shell.ExecTool.execute'
                 options = {'side_effect': RuntimeError(raw)} if mode in ['tool_error', 'fallback'] else {'return_value': raw}
-                with patch(target, new_callable=AsyncMock, **options), patch('nanobot.agent.loop.publish_context') as publish:
+                with patch(target, new_callable=AsyncMock, **options), patch('nanobot.harness.loop.publish_context') as publish:
                     await process(loop)
                     await loop.subagents._run_subagent('id', 'task', 'label', {'channel': 'cli', 'chat_id': 'one'})
                 record = next(r for r in sessions.get('cli:one').messages if r['role'] == 'tool')
@@ -173,11 +173,11 @@ class ShellTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('timed out', await ExecTool(timeout=0.1).execute('Start-Sleep -Seconds 10'))
 
     async def test_missing_timeout_and_guards(self):
-        with patch('nanobot.agent.tools.shell.shutil.which', return_value=None):
+        with patch('nanobot.harness.tools.shell.shutil.which', return_value=None):
             self.assertIn('not found in PATH', await ExecTool().execute('1'))
         proc = Mock(returncode=0)
         proc.communicate = AsyncMock(side_effect=[asyncio.TimeoutError(), (b'', b'')])
-        with patch('nanobot.agent.tools.shell.shutil.which', return_value='pwsh'), patch('asyncio.create_subprocess_exec', AsyncMock(return_value=proc)):
+        with patch('nanobot.harness.tools.shell.shutil.which', return_value='pwsh'), patch('asyncio.create_subprocess_exec', AsyncMock(return_value=proc)):
             self.assertIn('timed out', await ExecTool().execute('1'))
         proc.kill.assert_called_once()
         self.assertEqual(proc.communicate.await_count, 2)
