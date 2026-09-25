@@ -1,5 +1,5 @@
 # Architecture
-<!-- architecture-baseline: a6ee922b80b3d9344dc14c8009356391e454e1da -->
+<!-- architecture-baseline: 5c85b417b42ea87e122de39121a7d011f609f8be -->
 
 ## Purpose
 
@@ -25,15 +25,15 @@ nanobot is a lightweight personal AI assistant framework. It accepts user turns 
 | Path | Responsibility |
 | --- | --- |
 | `nanobot/cli/` | CLI entry points and top-level runtime assembly. |
-| `nanobot/agent/` | Core agent loop, context construction, memory, skills, attachments, subagents, and built-in tools. |
+| `nanobot/harness/` | Agent runtime: loop, context, memory, skills, tools, subagents, attachments, history compression, and session persistence. |
 | `nanobot/bus/` | Inbound and outbound message event types plus async queues. |
 | `nanobot/channels/` | Chat channel adapters that translate platform events to and from bus messages. |
 | `nanobot/webservice/` | Browser-client use cases for sessions, messages, attachments, and DTOs. |
-| `nanobot/session/` | Canonical conversation history, JSONL persistence, and stable blob storage. |
+| `nanobot/harness/session/` | Canonical conversation history, JSONL persistence, and stable blob storage. |
 | `nanobot/providers/` | LLM provider interface, LiteLLM adapter, and provider metadata registry. |
 | `nanobot/rag/` | Local knowledge-base ingestion, chunking, embedding, indexing, and retrieval. |
 | `nanobot/mcp/` | Local MCP server lifecycle, discovery, calls, and result normalization. |
-| `nanobot/devtools/`, `devtools/` | Optional main-agent context snapshots and a standalone local viewer. |
+| `nanobot/utils/_debug.py`, `devtools/` | Optional main-agent context snapshots and a standalone local viewer. |
 | `nanobot/config/` | Pydantic config schema, loading, migration, and key conversion. |
 | `nanobot/cron/` | Scheduled agent-turn storage, timers, and execution callbacks. |
 | `nanobot/heartbeat/` | Periodic workspace wake-up service. |
@@ -77,30 +77,30 @@ flowchart TD
 - Key entry: `nanobot/cli/commands.py`; module entry: `nanobot/__main__.py`.
 - Relationship: CLI is the composition root. It wires history compression and a summary provider, reusing the main provider unless a separate summary model is configured.
 
-### Agent Core
+### Agent Harness
 - Responsibility: process one user turn through request-time history compression, context building, LLM calls, tool execution, clipped-result persistence, and stage/final response creation.
-- Key entries: `nanobot/agent/loop.py`, `nanobot/agent/compress/`, `nanobot/agent/status.py`.
-- Relationship: depends on `MessageBus`, `LLMProvider`, `SessionManager`, `ContextBuilder`, and `ToolRegistry`. A per-turn tool registry adds session-bound Todo editing; status snapshots carry elapsed time and current Todos into model context.
-- `nanobot/agent/compress/service.py` owns main-agent request preparation: idle-triggered cleanup of old tool results/reasoning, character-based estimation of messages and tool schemas, and threshold-triggered summaries. Summaries retain the current user turn and complete tool-call/result groups; failed summaries leave the existing projection usable.
+- Key entries: `nanobot/harness/loop.py`, `nanobot/harness/compress/`, `nanobot/harness/status.py`.
+- Relationship: `nanobot/harness/` groups agent execution and session persistence; the loop depends on `MessageBus`, `LLMProvider`, `SessionManager`, `ContextBuilder`, and `ToolRegistry`. A per-turn tool registry adds session-bound Todo editing; status snapshots carry elapsed time and current Todos into model context.
+- `nanobot/harness/compress/service.py` owns main-agent request preparation: idle-triggered cleanup of old tool results/reasoning, character-based estimation of messages and tool schemas, and threshold-triggered summaries. Summaries retain the current user turn and complete tool-call/result groups; failed summaries leave the existing projection usable.
 
 ### Context, Memory, And Skills
 - Responsibility: assemble code-owned instructions, runtime context, workspace `AGENTS.md`, long-term memory, and skill name/description summaries.
-- Key entries: `nanobot/agent/context.py`, `nanobot/agent/prompts.py`, `nanobot/agent/memory.py`, `nanobot/agent/skills.py`.
+- Key entries: `nanobot/harness/context.py`, `nanobot/harness/prompts.py`, `nanobot/harness/memory.py`, `nanobot/harness/skills.py`.
 - Relationship: workspace skills override bundled names; `load_skill` returns bodies and dependency diagnostics into tool history. `MemoryStore` only reads `memory/MEMORY.md`; automatic memory consolidation is absent. Context places a persisted history summary after the system prompt and before effective history as a marked user-role background message.
 
 ### Tools And Subagents
 - Responsibility: provide OpenAI-style tool schemas and execute file writes/edits, PowerShell execution, web, RAG, skills, Todo, messaging, spawning, and scheduling.
-- Key entries: `nanobot/agent/tools/`, `nanobot/agent/subagent.py`.
+- Key entries: `nanobot/harness/tools/`, `nanobot/harness/subagent.py`.
 - Relationship: `ToolRegistry` is the execution boundary. Both loops share skill loading, RAG, and result clipping; reads/listings use the shell tool. Subagents have no history cleanup/summarization, session Todo/status, MCP registration, direct messaging, or nested spawning.
 
 ### Local MCP
 - Responsibility: start configured local Python servers over stdio, discover tools asynchronously, execute calls, and close connections at runtime shutdown.
-- Key entries: `nanobot/mcp/manager.py`, `nanobot/mcp/results.py`, `nanobot/agent/tools/mcp.py`.
+- Key entries: `nanobot/mcp/manager.py`, `nanobot/mcp/results.py`, `nanobot/harness/tools/mcp.py`.
 - Relationship: CLI owns `MCPManager` and registers discovered adapters on the main agent. Each turn snapshots available tools; adapters project normalized text/structured results into tool strings. Server scripts must resolve inside the project root.
 
 ### Local RAG
 - Responsibility: rebuild a local knowledge base from Markdown/text sources and retrieve snippets through dense and sparse search, weighted reciprocal-rank fusion, and model reranking.
-- Key entries: `nanobot/rag/service.py`, `nanobot/rag/indexing.py`, `nanobot/rag/embeddings.py`, `nanobot/rag/store.py`, `nanobot/rag/rerank.py`, `nanobot/agent/tools/rag.py`.
+- Key entries: `nanobot/rag/service.py`, `nanobot/rag/indexing.py`, `nanobot/rag/embeddings.py`, `nanobot/rag/store.py`, `nanobot/rag/rerank.py`, `nanobot/harness/tools/rag.py`.
 - Relationship: the CLI triggers index initialization; the agent tool adapts synchronous retrieval into `ToolRegistry`. `service.py` orchestrates indexing and queries, while the neighboring modules own chunking, model lifecycle, dense Chroma storage, sparse SQLite storage, fusion, and reranking.
 
 ### Message Bus
@@ -120,7 +120,7 @@ flowchart TD
 
 ### Sessions And Attachments
 - Responsibility: store canonical role-based history, project it for providers, and keep attachment blobs stable across turns.
-- Key entries: `nanobot/session/manager.py`, `nanobot/session/history.py`, `nanobot/session/compression.py`, `nanobot/session/blobs.py`, `nanobot/agent/attachments.py`.
+- Key entries: `nanobot/harness/session/manager.py`, `nanobot/harness/session/history.py`, `nanobot/harness/session/compression.py`, `nanobot/harness/session/blobs.py`, `nanobot/harness/attachments.py`.
 - Relationship: `AgentLoop` appends canonical records with reasoning and raw tool-call arguments. Session compression projects effective records without rewriting canonical history; provider projection appends retained status snapshots. Web projection uses canonical history through `nanobot/webservice/serialization.py`. Legacy `_type` records are rejected.
 
 ### Providers
@@ -152,7 +152,7 @@ flowchart TD
 | History cleanup boundaries and summary | `HistoryCompressionService` proposes; `SessionManager` validates and atomically commits | Compression state in session JSONL metadata; canonical records remain intact. |
 | Turn timer and status snapshots | Main-agent `AgentStatus` | Timer is in memory; immutable snapshots persist on user/system/tool records. |
 | Long-term memory | Workspace file; `MemoryStore` reads it | Workspace `memory/MEMORY.md`. |
-| Latest model-context snapshot | `nanobot/devtools/llm_context.py` | Optional overwrite-only `.nanobot/debug/context.json`; read by `devtools/llm_viewer.py`. |
+| Latest model-context snapshot | `nanobot/utils/_debug.py` | Optional overwrite-only `.nanobot/debug/context.json`; read by `devtools/llm_viewer.py`. |
 | Stable image blobs for history | `SessionBlobStore` | `.nanobot/session_blobs`. |
 | Browser upload attachments | `WebAttachmentStore` | `.nanobot/attachments/web` plus an attachment index. |
 | RAG source documents | Repository-local RAG runtime | Externally populated `rag-test/source`. |
@@ -180,11 +180,11 @@ flowchart TD
 - Channel adapters may translate platform payloads and enforce channel policy, but they should communicate with the agent only through `MessageBus` events.
 - `AgentLoop` should remain platform-agnostic. Add channel-specific behavior to channels or service layers.
 - Keep MCP protocol and process lifecycle inside `nanobot/mcp/`; adapters expose tools without transferring server ownership to agent loops.
-- Preserve canonical session record shapes in `nanobot/session/history.py` when changing persistence or UI projections.
-- History compression is main-agent-only and runs before model requests, not in a background worker. Compression policy belongs in `nanobot/agent/compress/`; persistent boundaries and effective-history projection belong in `nanobot/session/`. Summaries do not replace canonical browser history or long-term memory.
+- Preserve canonical session record shapes in `nanobot/harness/session/history.py` when changing persistence or UI projections.
+- History compression is main-agent-only and runs before model requests, not in a background worker. Compression policy belongs in `nanobot/harness/compress/`; persistent boundaries and effective-history projection belong in `nanobot/harness/session/`. Summaries do not replace canonical browser history or long-term memory.
 - Provider-specific model naming, env variables, gateway detection, and overrides belong in `nanobot/providers/registry.py` and `LiteLLMProvider`.
 - Browser-specific workflows belong in `nanobot/webservice/` and `web/features/chat/`; do not push UI concerns into the agent loop.
-- Attachment safety checks and stable blob handling should remain centralized in `nanobot/agent/attachments.py`, `nanobot/session/blobs.py`, and `nanobot/webservice/attachments.py`.
+- Attachment safety checks and stable blob handling should remain centralized in `nanobot/harness/attachments.py`, `nanobot/harness/session/blobs.py`, and `nanobot/webservice/attachments.py`.
 - Keep RAG orchestration, indexing, model lifecycle, storage, fusion, and reranking in their dedicated `nanobot/rag/` modules; agent-facing code should access retrieval through the registered RAG tool rather than manipulating either index directly.
 - Cron should schedule and invoke callbacks; agent behavior for scheduled turns should stay in `AgentLoop`.
 - The WhatsApp bridge is a compatibility boundary between Python and WhatsApp Web. Avoid casual protocol or auth-storage changes without checking both `bridge/` and `nanobot/channels/whatsapp.py`.
