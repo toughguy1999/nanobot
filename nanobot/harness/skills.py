@@ -100,4 +100,4 @@ class SkillsLoader:
             name = " ".join(skill["name"].splitlines())
             description = " ".join((metadata.get("description") or name).splitlines())
             lines.append(f"-{name}： {description}")
-        return "\n".join(lines)
+        return f"# Skills List\n\n{"\n".join(lines)}"

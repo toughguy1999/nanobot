@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.harness.compress.prompts import history_summary_message
-from nanobot.harness.memory import MemoryStore
-from nanobot.harness.prompts import get_basic_system_prompt
+from nanobot.harness.prompts import get_basic_system_prompt, get_user_context
 from nanobot.harness.skills import SkillsLoader
+from nanobot.utils.helpers import ensure_memory_workspace
 
 
 class ContextBuilder:
@@ -22,30 +22,21 @@ class ContextBuilder:
     ):
         self.workspace = workspace.expanduser().resolve()
         self.restrict_to_workspace = restrict_to_workspace
-        self.memory = MemoryStore(self.workspace)
+        ensure_memory_workspace(self.workspace)
         self.skills = SkillsLoader(self.workspace)
 
     def build_system_prompt(self, channel: str | None = None) -> str:
         """Assemble static instructions and fresh per-turn context."""
-        parts = []
-
-        # Basic Prompt
-        prompt = get_basic_system_prompt(
-            workspace=self.workspace,
-            restrict_to_workspace=self.restrict_to_workspace,
-            channel=channel
-        )
-        parts.append(prompt)
-
-        # Memory context
-        memory = self.memory.get_memory_context()
-        if memory:
-            parts.append(f"# Memory\n\n{memory}")
+        parts = [get_basic_system_prompt()]
 
         # Only descriptions enter the system prompt; bodies arrive via load_skill.
-        skills_summary = self.skills.build_skills_summary()
-        if skills_summary:
-            parts.append(f"# Skills List\n\n{skills_summary}")
+        parts.append(self.skills.build_skills_summary())
+
+        parts.append(get_user_context(
+            workspace=self.workspace,
+            restrict_to_workspace=self.restrict_to_workspace,
+            channel=channel,
+        ))
 
         return "\n\n---\n\n".join(parts)
 

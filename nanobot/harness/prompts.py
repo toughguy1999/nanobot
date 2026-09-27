@@ -7,26 +7,16 @@ from pathlib import Path
 from nanobot.harness.tools.shell import get_execution_shell
 
 
-def get_basic_system_prompt(
-    *,
-    workspace: Path,
-    restrict_to_workspace: bool = False,
-    channel: str | None = None
-) -> str:
-    workspace = workspace.expanduser().resolve()
+def get_basic_system_prompt() -> str:
     sections = [
         _get_identity_section(),
         _get_system_section(),
-        _get_tone_and_style_section(),
+        _get_privacy_and_security_section(),
         _get_doing_task_section(),
         _get_tool_use_section(),
         get_skill_usage_rules(),
-        _get_privacy_and_security_section(),
-        _get_environment_section(
-            workspace=workspace, restrict_to_workspace=restrict_to_workspace,
-            channel=channel,
-        ),
-        _get_user_context(workspace),
+        get_memory_usage_rules(),
+        _get_tone_and_style_section(),
     ]
     return "\n\n---\n\n".join(section.strip() for section in sections if section.strip())
 
@@ -38,6 +28,68 @@ def get_skill_usage_rules() -> str:
 - 当前上下文已有所需正文时继续使用；正文缺失且任务需要时重新加载。
 - 附属文件按需访问，以工具返回的目录定位相对引用，并遵守文件和执行工具的已有权限；返回目录不会扩大权限。
 - 缺少依赖时结合任务、正文和用户要求处理；加载正文成功不表示运行环境可用。"""
+
+
+def get_memory_usage_rules() -> str:
+    return """# 自动记忆
+工作区 `memory/` 是持久化记忆目录，初始化已完成，可直接使用现有工具读写。持续积累对用户背景、偏好和协作方式的理解，帮助未来会话更好地配合用户。
+用户明确要求记住时，按合适类型及时保存；要求忘记时，查找并删除相关内容，必要时同步移除索引。
+
+## 记忆类型
+只保存以下两类记忆：
+
+<types>
+<type>
+    <name>user</name>
+    <description>用户的背景、角色、目标、知识水平、长期偏好与习惯。不记录无关信息、臆测或负面评价；正文自由组织。</description>
+    <when_to_save>了解到有依据且对未来会话有价值的用户信息时保存。</when_to_save>
+    <how_to_use>据此调整解释深度、建议和沟通方式。</how_to_use>
+</type>
+<type>
+    <name>feedback</name>
+    <description>用户对助手工作方式的指导，包括需要避免和应该保持的做法。</description>
+    <when_to_save>用户纠正做法，或明确认可具有未来复用价值的做法时保存；同时关注失败和成功，不将单纯未反对视为认可。</when_to_save>
+    <how_to_use>指导后续协作，避免用户重复提出相同要求，并保留原因以判断适用边界。</how_to_use>
+    <body_structure>正文必填“内容”；“背景”和“适用范围”仅在有依据时填写，不补猜。</body_structure>
+</type>
+</types>
+
+## 不应保存的内容
+- 能从当前文件直接获得的代码模式、架构、目录结构，以及 Git 已记录的变更历史、修复过程。
+- `AGENTS.md` 已维护的内容。
+- 当前任务进度、临时状态、聊天流水，以及模型猜测或未确认的建议。
+- 用户明确要求保存上述内容时，先辨别其中是否有值得长期保存的用户信息或协作反馈，不机械地保存整份记录。
+
+## 如何保存记忆
+操作前先检查 `memory/MEMORY.md` 索引，必要时读取已有主题，避免重复。
+第一步：优先更新相似主题，没有合适主题时在 `memory/` 下新建文件。主题文件使用以下 frontmatter：
+```markdown
+---
+name: 主题名称
+description: 一句话说明内容，帮助未来判断相关性
+type: user 或 feedback
+---
+
+正文：user 自由组织；feedback 必填“内容”，“背景”和“适用范围”仅在有依据时填写。
+```
+第二步：维护 `memory/MEMORY.md` 中的对应索引，每条一行，格式为 `- [name](文件名.md) — description`；方括号内直接使用主题文件 frontmatter 的 `name` 值，圆括号内使用正文文件名，破折号后直接使用 `description` 值，不另写一份简述。例如，主题的 `name` 为“方案比较偏好”、`description` 为“比较方案时先给推荐结论，再解释取舍。”时：
+```markdown
+- [方案比较偏好](feedback_comparison.md) — 比较方案时先给推荐结论，再解释取舍。
+```
+- 索引无 frontmatter，不写记忆正文；每轮全量加载，不截断到 200 行。索引中的文件名相对于工作区 `memory/`。
+- 按语义主题组织，不按时间追加流水；保持正文、frontmatter 与索引描述一致，错误或过时内容应更新或删除。
+- 读取、搜索和删除沿用 `exec_command`，修改沿用 `edit_file`，新建或完整重写沿用 `write_file`，遵守已有路径和权限规则。
+
+## 何时访问记忆
+- 记忆可能相关，或用户提及之前的对话时，根据索引按需读取主题正文。
+- 用户明确要求查阅、回忆或核对已有记忆时，必须访问相关记忆；当前上下文已有足够正文时可复用，缺失或被清理时重新读取。工具结果被裁剪时缩小范围或重新读取。
+- 用户要求忽略或不使用记忆时，按索引为空处理，不使用、引用、比较或提及已记住的内容。
+- 记忆是过去已知的背景；与当前明确表达或核实结果冲突时，以当前信息为准，并更新或删除过时记忆。
+
+## 根据记忆提出建议前
+召回了内容不代表现在可以据此行动。对会影响建议的时效性事实，尤其用户即将据此行动时，先核实当前情况。
+记忆涉及具体文件、资源、功能或配置时，使用相应工具检查其是否仍存在、有效。
+用户询问当前或最近情况时，以当前信息来源为准；核实不了时明确说明记忆可能过时，不把旧记录表述为已确认现状。"""
 
 
 def _get_identity_section() -> str:
@@ -121,23 +173,56 @@ def _get_environment_section(
         lines.append(f"- 当前会话渠道：{channel}")
     return "\n".join(lines)
 
-def _get_user_context(workspace: Path) -> str:
+def get_user_context(
+    *,
+    workspace: Path,
+    restrict_to_workspace: bool = False,
+    channel: str | None = None,
+) -> str:
+    workspace = workspace.expanduser().resolve()
+    sections = [
+        _get_environment_section(
+            workspace=workspace, restrict_to_workspace=restrict_to_workspace,
+            channel=channel,
+        ),
+        _get_user_instructions_section(workspace),
+        _get_memory_index_section(workspace),
+        _get_local_date_section(),
+    ]
+    return "\n\n".join(section.strip() for section in sections if section.strip())
+
+
+def _get_user_instructions_section(workspace: Path) -> str:
     agents_path = workspace / "AGENTS.md"
     agents_content = agents_path.read_text(encoding="utf-8") if agents_path.is_file() else ""
-    sections = ["# 用户上下文"]
     if agents_content.strip():
-        sections.append(
-            "## 用户自定义指令\n"
+        return (
+            "# 用户自定义指令\n"
             "以下内容来自工作区 AGENTS.md，由用户维护，用于定制agent行为\n\n"
             f"<user_instructions>\n{agents_content}\n</user_instructions>"
         )
+    return ""
+
+
+def _get_local_date_section() -> str:
     # Read the local calendar date each turn; omit time-of-day for a stable prompt.
     today = date.today()
     weekday = "一二三四五六日"[today.weekday()]
-    sections.append(
-        "## 本地日期\n"
+    return (
+        "# 用户本地日期\n"
         f"- 日期：{today:%Y-%m-%d}\n"
         f"- 星期：星期{weekday}\n"
         "日期按运行环境本地时区计算；需要精确当前时间时使用工具查询。"
     )
-    return "\n\n".join(sections)
+
+
+def _get_memory_index_section(workspace: Path) -> str:
+    memory_path = workspace / "memory" / "MEMORY.md"
+    memory_index = memory_path.read_text(encoding="utf-8") if memory_path.is_file() else ""
+    if memory_index.strip():
+        return (
+            "# 记忆索引\n"
+            "以下索引指向工作区 memory/ 下的记忆文件，正文按需读取。\n"
+            f"<memory_index>\n{memory_index}\n</memory_index>"
+        )
+    return ""

@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, Mock, patch
 from loguru import logger
 from test_agent_todo import ScriptedProvider, process, setup_loop
 
+from nanobot.config.loader import load_config
+from nanobot.config.schema import AgentDefaults
 from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
 from nanobot.harness.compress.token_estimate import estimate_tokens
 from nanobot.harness.compress.tool_result import CLIP_NOTICE
@@ -16,8 +18,6 @@ from nanobot.harness.loop import AgentLoop
 from nanobot.harness.prompts import get_basic_system_prompt, get_file_command_guidelines
 from nanobot.harness.tools.filesystem import EditFileTool, WriteFileTool
 from nanobot.harness.tools.shell import ExecTool
-from nanobot.config.loader import load_config
-from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 
@@ -111,22 +111,23 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
         loop, sessions, root = setup_loop(self, provider)
         self.assertEqual(loop.max_tool_result_tokens, loop.subagents.max_tool_result_tokens)
         memory = root / 'memory' / 'MEMORY.md'
-        memory.write_text('LONG_TERM_FACT', encoding='utf-8')
-        history = root / 'memory' / 'HISTORY.md'
-        history.write_text('HISTORY_UNCHANGED', encoding='utf-8')
+        memory.write_text('- [user.md](user.md) — USER_INDEX', encoding='utf-8')
+        topic = root / 'memory' / 'user.md'
+        topic.write_text('USER_BODY_UNCHANGED', encoding='utf-8')
         session = sessions.get_or_create('cli:one')
         for i in range(120):
             session.add_message('user', str(i))
         await process(loop)
         self.assertEqual(len(provider.calls), 1)
         self.assertEqual(len(session.get_llm_history()), 122)
-        self.assertIn('LONG_TERM_FACT', provider.calls[0]['messages'][0]['content'])
+        self.assertIn('- [user.md](user.md) — USER_INDEX', provider.calls[0]['messages'][0]['content'])
+        self.assertNotIn('USER_BODY_UNCHANGED', provider.calls[0]['messages'][0]['content'])
         await process(loop, '/new')
         self.assertEqual(len(provider.calls), 1)
         self.assertEqual(session.messages, [])
-        self.assertEqual(memory.read_text(encoding='utf-8'), 'LONG_TERM_FACT')
-        self.assertEqual(history.read_text(encoding='utf-8'), 'HISTORY_UNCHANGED')
-        for prompt in [get_basic_system_prompt(workspace=root), loop.subagents._build_subagent_prompt('task')]:
+        self.assertEqual(memory.read_text(encoding='utf-8'), '- [user.md](user.md) — USER_INDEX')
+        self.assertEqual(topic.read_text(encoding='utf-8'), 'USER_BODY_UNCHANGED')
+        for prompt in [get_basic_system_prompt(), loop.subagents._build_subagent_prompt('task')]:
             self.assertIn(get_file_command_guidelines(), prompt)
             self.assertIn('PowerShell 7', prompt)
         for name in ['read_file', 'list_dir', 'exec']:

@@ -7,14 +7,14 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from xml.etree import ElementTree as ET
 
+from nanobot.bus.queue import MessageBus
 from nanobot.harness.context import ContextBuilder
 from nanobot.harness.loop import AgentLoop
-from nanobot.harness.prompts import get_skill_usage_rules
+from nanobot.harness.prompts import get_memory_usage_rules, get_skill_usage_rules
 from nanobot.harness.skills import SkillsLoader
 from nanobot.harness.subagent import SubagentManager
 from nanobot.harness.tools.filesystem import EditFileTool
 from nanobot.harness.tools.skills import LoadSkillTool
-from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMResponse, ToolCallRequest
 
 
@@ -96,7 +96,7 @@ class SkillLoadingChecks(unittest.IsolatedAsyncioTestCase):
         self.skill('example', '---\ndescription: Example\nalways: true\n---\nBODY_MARKER')
         memory = self.workspace / 'memory'
         memory.mkdir()
-        (memory / 'MEMORY.md').write_text('LONG_TERM_MARKER', encoding='utf-8')
+        (memory / 'MEMORY.md').write_text('- [user.md](user.md) — INDEX_MARKER', encoding='utf-8')
         with patch('nanobot.harness.skills.BUILTIN_SKILLS_DIR', self.builtin):
             context = ContextBuilder(self.workspace, restrict_to_workspace=True)
             provider = AsyncMock()
@@ -105,8 +105,11 @@ class SkillLoadingChecks(unittest.IsolatedAsyncioTestCase):
             main = AgentLoop(MessageBus(), provider, self.workspace, session_manager=object(), restrict_to_workspace=True)
         main_prompt = context.build_system_prompt()
         sub_prompt = manager._build_subagent_prompt('test')
-        self.assertIn('LONG_TERM_MARKER', main_prompt)
-        self.assertNotIn('LONG_TERM_MARKER', sub_prompt)
+        self.assertIn('- [user.md](user.md) — INDEX_MARKER', main_prompt)
+        self.assertNotIn('- [user.md](user.md) — INDEX_MARKER', sub_prompt)
+        self.assertIn(get_memory_usage_rules(), main_prompt)
+        self.assertNotIn(get_memory_usage_rules(), sub_prompt)
+        self.assertNotIn('<memory_index>', sub_prompt)
         for prompt in [main_prompt, sub_prompt]:
             self.assertIn('-example： Example', prompt)
             self.assertIn(get_skill_usage_rules(), prompt)

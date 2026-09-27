@@ -24,6 +24,16 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def ensure_memory_workspace(workspace: Path) -> None:
+    """Create an empty memory index if missing, preserving existing content."""
+    memory_dir = ensure_dir(workspace.expanduser().resolve() / "memory")
+    try:
+        with (memory_dir / "MEMORY.md").open("x", encoding="utf-8"):
+            pass
+    except FileExistsError:
+        pass
+
+
 def get_data_path() -> Path:
     """Get the nanobot data directory (<NANOBOT_HOME>/.nanobot or <project_root>/.nanobot)."""
     return ensure_dir(PROJECT_ROOT / ".nanobot")

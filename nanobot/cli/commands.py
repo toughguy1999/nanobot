@@ -17,7 +17,7 @@ from rich.table import Table
 from rich.text import Text
 
 import nanobot
-from nanobot.utils.helpers import PROJECT_ROOT, get_workspace_path
+from nanobot.utils.helpers import PROJECT_ROOT, ensure_memory_workspace, get_workspace_path
 
 
 def _supports_unicode_output() -> bool:
@@ -214,7 +214,6 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 - Always explain what you're doing before taking actions
 - Ask for clarification when the request is ambiguous
 - Use tools to help accomplish tasks
-- Remember important information in memory/MEMORY.md; past events are logged in memory/HISTORY.md
 """,
     }
 
@@ -224,33 +223,7 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
             file_path.write_text(content)
             console.print(f"  [dim]Created {filename}[/dim]")
 
-    # Create memory directory and MEMORY.md
-    memory_dir = workspace / "memory"
-    memory_dir.mkdir(exist_ok=True)
-    memory_file = memory_dir / "MEMORY.md"
-    if not memory_file.exists():
-        memory_file.write_text("""# Long-term Memory
-
-This file stores important information that should persist across sessions.
-
-## User Information
-
-(Important facts about the user)
-
-## Preferences
-
-(User preferences learned over time)
-
-## Important Notes
-
-(Things to remember)
-""")
-        console.print("  [dim]Created memory/MEMORY.md[/dim]")
-
-    history_file = memory_dir / "HISTORY.md"
-    if not history_file.exists():
-        history_file.write_text("")
-        console.print("  [dim]Created memory/HISTORY.md[/dim]")
+    ensure_memory_workspace(workspace)
 
     # Create skills directory for custom user skills
     skills_dir = workspace / "skills"
