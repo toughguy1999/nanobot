@@ -54,7 +54,7 @@ class AgentLoop:
         model: str | None = None,
         max_iterations: int = 100,
         max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS,
-        brave_api_key: str | None = None,
+        tavily_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
         restrict_to_workspace: bool = False,
@@ -71,7 +71,7 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.max_tokens = max_tokens
         self.max_tool_result_tokens = max_tool_result_tokens
-        self.brave_api_key = brave_api_key
+        self.tavily_api_key = tavily_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
@@ -97,7 +97,7 @@ class AgentLoop:
             max_tool_result_tokens=max_tool_result_tokens,
             model=self.model,
             max_tokens=self.max_tokens,
-            brave_api_key=brave_api_key,
+            tavily_api_key=tavily_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
         )
@@ -121,7 +121,7 @@ class AgentLoop:
         ))
 
         # Web tools
-        self.tools.register(WebSearchTool(api_key=self.brave_api_key))
+        self.tools.register(WebSearchTool(api_key=self.tavily_api_key))
         self.tools.register(WebFetchTool())
 
         # Local RAG tools

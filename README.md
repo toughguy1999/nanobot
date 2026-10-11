@@ -96,7 +96,9 @@ pip install nanobot-ai
 
 > [!TIP]
 > Set your API key in `~/.nanobot/config.json`.
-> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global) · [Brave Search](https://brave.com/search/api/) (optional, for web search)
+> Get API keys: [OpenRouter](https://openrouter.ai/keys) (Global) · [Tavily](https://app.tavily.com/) (optional, for web search)
+
+> For web search, set `tools.web.search.apiKey` in your config or set the `TAVILY_API_KEY` environment variable, then restart nanobot. Searches use Tavily's `basic` mode. With `NANOBOT_HOME` set, the config is at `<NANOBOT_HOME>/.nanobot/config.json`.
 
 **1. Initialize**
 

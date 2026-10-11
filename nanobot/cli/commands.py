@@ -336,7 +336,7 @@ def gateway(
         max_tool_result_tokens=config.agents.defaults.max_tool_result_tokens,
         history_compression=config.agents.defaults.history_compression,
         summary_provider=summary_provider,
-        brave_api_key=config.tools.web.search.api_key or None,
+        tavily_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
@@ -459,7 +459,7 @@ def agent(
         max_tool_result_tokens=config.agents.defaults.max_tool_result_tokens,
         history_compression=config.agents.defaults.history_compression,
         summary_provider=summary_provider,
-        brave_api_key=config.tools.web.search.api_key or None,
+        tavily_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
     )

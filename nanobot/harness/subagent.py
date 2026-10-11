@@ -40,7 +40,7 @@ class SubagentManager:
         workspace: Path,
         bus: MessageBus,
         model: str | None = None,
-        brave_api_key: str | None = None,
+        tavily_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
         max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS,
@@ -54,7 +54,7 @@ class SubagentManager:
         self.skills = SkillsLoader(self.workspace)
         self.bus = bus
         self.model = model or provider.get_default_model()
-        self.brave_api_key = brave_api_key
+        self.tavily_api_key = tavily_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -120,7 +120,7 @@ class SubagentManager:
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
             ))
-            tools.register(WebSearchTool(api_key=self.brave_api_key))
+            tools.register(WebSearchTool(api_key=self.tavily_api_key))
             tools.register(WebFetchTool())
             tools.register(AbsurdNovelKnowledgeSearchTool())
 
