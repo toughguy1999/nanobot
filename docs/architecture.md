@@ -1,5 +1,5 @@
 # Architecture
-<!-- architecture-baseline: 5c85b417b42ea87e122de39121a7d011f609f8be -->
+<!-- architecture-baseline: 5ba42d0be84a4cad112e1ffdaf282eb4db8b79d8 -->
 
 ## Purpose
 
@@ -25,7 +25,7 @@ nanobot is a lightweight personal AI assistant framework. It accepts user turns 
 | Path | Responsibility |
 | --- | --- |
 | `nanobot/cli/` | CLI entry points and top-level runtime assembly. |
-| `nanobot/harness/` | Agent runtime: loop, context, memory, skills, tools, subagents, attachments, history compression, and session persistence. |
+| `nanobot/harness/` | Agent runtime: loop, context and memory-index injection, skills, tools, subagents, attachments, history compression, and session persistence. |
 | `nanobot/bus/` | Inbound and outbound message event types plus async queues. |
 | `nanobot/channels/` | Chat channel adapters that translate platform events to and from bus messages. |
 | `nanobot/webservice/` | Browser-client use cases for sessions, messages, attachments, and DTOs. |
@@ -55,7 +55,7 @@ flowchart TD
     Summary --> Compression
     Context --> Provider["LLMProvider via LiteLLM"]
     Provider --> Agent
-    Agent --> Tools["ToolRegistry: built-ins, skills, Todo, MCP"]
+    Agent --> Tools["ToolRegistry: batch scheduling, built-ins, skills, Todo, MCP"]
     Tools --> Clip["Tool-result clipping"]
     Clip --> Agent
     Tools --> MCP["MCPManager: local stdio servers"]
@@ -84,14 +84,15 @@ flowchart TD
 - `nanobot/harness/compress/service.py` owns main-agent request preparation: idle-triggered cleanup of old tool results/reasoning, character-based estimation of messages and tool schemas, and threshold-triggered summaries. Summaries retain the current user turn and complete tool-call/result groups; failed summaries leave the existing projection usable.
 
 ### Context, Memory, And Skills
-- Responsibility: assemble code-owned instructions, runtime context, workspace `AGENTS.md`, long-term memory, and skill name/description summaries.
-- Key entries: `nanobot/harness/context.py`, `nanobot/harness/prompts.py`, `nanobot/harness/memory.py`, `nanobot/harness/skills.py`.
-- Relationship: workspace skills override bundled names; `load_skill` returns bodies and dependency diagnostics into tool history. `MemoryStore` only reads `memory/MEMORY.md`; automatic memory consolidation is absent. Context places a persisted history summary after the system prompt and before effective history as a marked user-role background message.
+- Responsibility: assemble code-owned instructions, skill name/description summaries, then user context containing the environment, workspace `AGENTS.md`, memory index, and local date.
+- Key entries: `nanobot/harness/context.py`, `nanobot/harness/prompts.py`, `nanobot/harness/skills.py`, `nanobot/utils/helpers.py`.
+- Relationship: workspace skills override bundled names; `load_skill` returns bodies and dependency diagnostics into tool history. CLI onboarding and `ContextBuilder` ensure `memory/MEMORY.md` exists without replacing content. The main agent loads the full index per turn and reads topic bodies on demand through existing tools; prompt rules govern `user`/`feedback` memory writes. Context places a persisted history summary after the system prompt and before effective history as a marked user-role background message.
 
 ### Tools And Subagents
 - Responsibility: provide OpenAI-style tool schemas and execute file writes/edits, PowerShell execution, web, RAG, skills, Todo, messaging, spawning, and scheduling.
-- Key entries: `nanobot/harness/tools/`, `nanobot/harness/subagent.py`.
-- Relationship: `ToolRegistry` is the execution boundary. Both loops share skill loading, RAG, and result clipping; reads/listings use the shell tool. Subagents have no history cleanup/summarization, session Todo/status, MCP registration, direct messaging, or nested spawning.
+- Key entries: `nanobot/harness/tools/registry.py`, `nanobot/harness/tools/scheduler.py`, `nanobot/harness/tools/web.py`, `nanobot/harness/subagent.py`.
+- Relationship: `ToolRegistry` is the execution boundary. Both loops share batch scheduling, skill loading, RAG, and result clipping; reads/listings use the shell tool. Subagents have no memory-index injection, history cleanup/summarization, session Todo/status, MCP registration, direct messaging, or nested spawning. `WebSearchTool` calls Tavily while preserving the `web_search(query, count)` interface.
+- Scheduling: adjacent calls explicitly approved by `isConcurrencySafe` run concurrently up to the per-agent limit; other calls form serial barriers. Web search/fetch, RAG, and skill loading opt in; shell, file mutations, Todo, and MCP remain serial. Ordinary tool failures become individual error results without aborting siblings. Both loops append results in model-call order after the batch; the main agent attaches one status snapshot to its last result and rebuilds context once.
 
 ### Local MCP
 - Responsibility: start configured local Python servers over stdio, discover tools asynchronously, execute calls, and close connections at runtime shutdown.
@@ -151,7 +152,7 @@ flowchart TD
 | Session metadata and Todos | `SessionManager`; `TodoEditTool` replaces the Todo list | First metadata record in each session JSONL file. |
 | History cleanup boundaries and summary | `HistoryCompressionService` proposes; `SessionManager` validates and atomically commits | Compression state in session JSONL metadata; canonical records remain intact. |
 | Turn timer and status snapshots | Main-agent `AgentStatus` | Timer is in memory; immutable snapshots persist on user/system/tool records. |
-| Long-term memory | Workspace file; `MemoryStore` reads it | Workspace `memory/MEMORY.md`. |
+| Long-term memory | Main agent through existing file/shell tools; prompt code injects the index | Workspace `memory/MEMORY.md` index plus topic Markdown files under `memory/`. |
 | Latest model-context snapshot | `nanobot/utils/_debug.py` | Optional overwrite-only `.nanobot/debug/context.json`; read by `devtools/llm_viewer.py`. |
 | Stable image blobs for history | `SessionBlobStore` | `.nanobot/session_blobs`. |
 | Browser upload attachments | `WebAttachmentStore` | `.nanobot/attachments/web` plus an attachment index. |
@@ -168,11 +169,11 @@ flowchart TD
 ## Configuration
 
 - Configuration enters through `nanobot/config/loader.py`, which reads `.nanobot/config.json`, migrates legacy shapes, converts camelCase keys to Python snake_case, and validates into `Config`; `NANOBOT_` environment variables can bind into the settings model.
-- Main categories are agent defaults (including history cleanup timing, retention, summary threshold/budgets, and optional summary model), provider credentials and endpoints, channel credentials and policies, gateway/web host settings, web search settings, shell timeout, workspace restriction, tool-result token budget, and local MCP servers.
+- Main categories are agent defaults (including history cleanup timing, retention, summary threshold/budgets, and optional summary model), provider credentials and endpoints, channel credentials and policies, gateway/web host settings, Tavily search credentials, shell timeout, workspace restriction, tool concurrency limit, tool-result token budget, and local MCP servers.
 - Provider selection is derived from the model name and configured provider keys, then refined by `nanobot/providers/registry.py`.
 - Channel enablement is configuration-driven; disabled channel modules should not be initialized by `ChannelManager`.
 - Local RAG asset paths, embedding and reranker models, chunking, dense/sparse retrieval and fusion weights, result counts, and device settings are module-level constants in `nanobot/rag/config.py`.
-- CLI injects general tool settings and the tool-result budget into the main/subagent loops; MCP configuration selects local servers, while RAG reads its own module-level settings. The optional context publisher captures main-agent messages/tools/model before and after loop updates, not provider wire payloads.
+- CLI injects general tool settings, the tool-result budget, and `tools.maxConcurrency` (default 4, independently applied per agent) into both loops. Explicit Tavily credentials take precedence over the search tool's environment fallback. MCP configuration selects local servers, while RAG reads its own module-level settings. The optional context publisher captures main-agent messages/tools/model before and after loop updates, not provider wire payloads.
 
 ## Architecture Boundaries
 
