@@ -61,6 +61,9 @@ class WebSearchTool(Tool):
         self.api_key = api_key or os.environ.get("TAVILY_API_KEY", "")
         self.max_results = max_results
 
+    def isConcurrencySafe(self, params: dict[str, Any]) -> bool:  # noqa: N802
+        return True
+
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         if not self.api_key:
             return "Error: TAVILY_API_KEY not configured"
@@ -107,6 +110,9 @@ class WebFetchTool(Tool):
 
     def __init__(self, max_chars: int = 50000):
         self.max_chars = max_chars
+
+    def isConcurrencySafe(self, params: dict[str, Any]) -> bool:  # noqa: N802
+        return True
 
     async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:  # noqa: N803
         from readability import Document

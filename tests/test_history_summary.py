@@ -8,15 +8,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from nanobot.bus.queue import MessageBus
+from nanobot.cli import commands
+from nanobot.config.schema import Config, HistoryCompressionConfig
 from nanobot.harness.compress.history import build_summary_plan
 from nanobot.harness.compress.prompts import build_summary_messages
 from nanobot.harness.compress.service import HistoryCompressionService
 from nanobot.harness.loop import AgentLoop
-from nanobot.bus.queue import MessageBus
-from nanobot.cli import commands
-from nanobot.config.schema import Config, HistoryCompressionConfig
-from nanobot.providers.base import LLMResponse, ToolCallRequest
 from nanobot.harness.session.manager import Session, SessionManager
+from nanobot.providers.base import LLMResponse, ToolCallRequest
 from tests.test_agent_todo import ScriptedProvider, process, setup_loop
 
 
@@ -27,6 +27,28 @@ def add_turn(session: Session, label: str, *, size: int = 0) -> list[dict[str, o
 
 
 class SummaryPlanTests(unittest.TestCase):
+    def test_sparse_batch_summary_keeps_boundary_and_single_status(self):
+        session = Session("batch")
+        session.add_user_message("old")
+        session.add_assistant_message("work", tool_calls=[{
+            "id": name, "type": "function", "function": {"name": "read", "arguments": "{}"},
+        } for name in ["a", "b"]])
+        session.add_tool_result(tool_call_id="a", name="read", content="first")
+        last = session.add_tool_result(
+            tool_call_id="b", name="read", content="last", agent_status="BATCH_STATUS",
+        )
+        session.add_user_message("current")
+        plan = build_summary_plan(
+            session.get_effective_records(), threshold_tokens=10,
+            keep_user_turns=1, recent_budget_ratio=1,
+        )
+        self.assertEqual(plan.summary_through_id, last["id"])
+        self.assertEqual([r["tool_call_id"] for r in plan.records_to_summarize if r["role"] == "tool"], ["a", "b"])
+        material = build_summary_messages(
+            existing_summary=None, records=plan.records_to_summarize, summary_budget_tokens=100,
+        )[-1]["content"]
+        self.assertEqual(material.count("BATCH_STATUS"), 1)
+
     def test_user_turns_budget_current_exception_prelude_and_system_notice(self):
         session = Session("one")
         prelude = session.add_system_message("before first user")

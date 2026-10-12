@@ -54,6 +54,10 @@ class Tool(ABC):
         """
         pass
 
+    def isConcurrencySafe(self, params: dict[str, Any]) -> bool:  # noqa: N802
+        """Opt in to concurrency for this call without I/O or state changes."""
+        return False
+
     def validate_params(self, params: dict[str, Any]) -> list[str]:
         """Validate tool parameters against JSON schema. Returns error list (empty if valid)."""
         schema = self.parameters or {}

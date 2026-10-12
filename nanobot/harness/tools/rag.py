@@ -38,6 +38,9 @@ class AbsurdNovelKnowledgeSearchTool(Tool):
             "required": ["query"],
         }
 
+    def isConcurrencySafe(self, params: dict[str, Any]) -> bool:  # noqa: N802
+        return True
+
     async def execute(self, query: str) -> str:
         snippets = await asyncio.to_thread(query_absurd_novel_knowledge_base, query)
         return json.dumps(snippets, ensure_ascii=False)

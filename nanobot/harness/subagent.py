@@ -8,17 +8,18 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from nanobot.bus.events import InboundMessage
+from nanobot.bus.queue import MessageBus
 from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
 from nanobot.harness.prompts import get_file_command_guidelines, get_skill_usage_rules
 from nanobot.harness.skills import SkillsLoader
 from nanobot.harness.tools.filesystem import EditFileTool, WriteFileTool
 from nanobot.harness.tools.rag import AbsurdNovelKnowledgeSearchTool
 from nanobot.harness.tools.registry import ToolRegistry
+from nanobot.harness.tools.scheduler import DEFAULT_MAX_TOOL_CONCURRENCY
 from nanobot.harness.tools.shell import ExecTool, get_execution_shell
 from nanobot.harness.tools.skills import LoadSkillTool
 from nanobot.harness.tools.web import WebFetchTool, WebSearchTool
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 
 if TYPE_CHECKING:
@@ -44,10 +45,12 @@ class SubagentManager:
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
         max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS,
+        max_tool_concurrency: int = DEFAULT_MAX_TOOL_CONCURRENCY,
         max_tokens: int = 20000,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.max_tool_result_tokens = max_tool_result_tokens
+        self.max_tool_concurrency = max_tool_concurrency
         self.max_tokens = max_tokens
         self.provider = provider
         self.workspace = workspace.expanduser().resolve()
@@ -170,14 +173,13 @@ class SubagentManager:
                         ),
                     })
 
-                    # Execute tools
                     for tool_call in response.tool_calls:
                         args_str = json.dumps(tool_call.arguments)
                         logger.debug(f"Subagent [{task_id}] executing: {tool_call.name} with arguments: {args_str}")
-                        try:
-                            result = await tools.execute(tool_call.name, tool_call.arguments)
-                        except Exception as exc:
-                            result = f"Error executing {tool_call.name}: {exc}"
+                    results = await tools.execute_batch(
+                        response.tool_calls, max_concurrency=self.max_tool_concurrency,
+                    )
+                    for tool_call, result in zip(response.tool_calls, results, strict=True):
                         result = compress_tool_result(result, self.max_tool_result_tokens)
                         messages.append({
                             "role": "tool",

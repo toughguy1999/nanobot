@@ -299,16 +299,16 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
-    from nanobot.harness.loop import AgentLoop
-    from nanobot.harness.tools.mcp import MCPTool
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
     from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
+    from nanobot.harness.loop import AgentLoop
+    from nanobot.harness.session.manager import SessionManager
+    from nanobot.harness.tools.mcp import MCPTool
     from nanobot.heartbeat.service import HeartbeatService
     from nanobot.mcp.manager import MCPManager
-    from nanobot.harness.session.manager import SessionManager
 
     if verbose:
         import logging
@@ -334,6 +334,7 @@ def gateway(
         max_iterations=config.agents.defaults.max_tool_iterations,
         max_tokens=config.agents.defaults.max_tokens,
         max_tool_result_tokens=config.agents.defaults.max_tool_result_tokens,
+        max_tool_concurrency=config.tools.max_concurrency,
         history_compression=config.agents.defaults.history_compression,
         summary_provider=summary_provider,
         tavily_api_key=config.tools.web.search.api_key or None,
@@ -432,10 +433,10 @@ def agent(
     """Interact with the agent directly."""
     from loguru import logger
 
-    from nanobot.harness.loop import AgentLoop
-    from nanobot.harness.tools.mcp import MCPTool
     from nanobot.bus.queue import MessageBus
     from nanobot.config.loader import load_config
+    from nanobot.harness.loop import AgentLoop
+    from nanobot.harness.tools.mcp import MCPTool
     from nanobot.mcp.manager import MCPManager
 
     config = load_config()
@@ -457,6 +458,7 @@ def agent(
         max_iterations=config.agents.defaults.max_tool_iterations,
         max_tokens=config.agents.defaults.max_tokens,
         max_tool_result_tokens=config.agents.defaults.max_tool_result_tokens,
+        max_tool_concurrency=config.tools.max_concurrency,
         history_compression=config.agents.defaults.history_compression,
         summary_provider=summary_provider,
         tavily_api_key=config.tools.web.search.api_key or None,

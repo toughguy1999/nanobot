@@ -30,6 +30,9 @@ class LoadSkillTool(Tool):
             "additionalProperties": False,
         }
 
+    def isConcurrencySafe(self, params: dict[str, Any]) -> bool:  # noqa: N802
+        return True
+
     async def execute(self, name: str) -> str:
         try:
             skill = self.loader.load_skill(name)

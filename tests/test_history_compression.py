@@ -27,6 +27,23 @@ def tool_call(call_id: str, name: str = "read") -> dict[str, object]:
 
 
 class CompressionPersistenceTests(unittest.TestCase):
+    def test_sparse_batch_status_survives_reload_and_is_cleared_with_batch(self):
+        self.session.add_assistant_message("work", tool_calls=[tool_call("a"), tool_call("b")])
+        self.session.add_tool_result(tool_call_id="a", name="read", content="first")
+        last = self.session.add_tool_result(
+            tool_call_id="b", name="read", content="last", agent_status="batch status",
+        )
+        original = copy.deepcopy(self.session.messages)
+        self.sessions.save(self.session)
+        self.assertEqual(self.reload().get_llm_history()[-1]["content"], "last\n\nbatch status")
+        self.sessions.commit_compression(
+            self.session, CompressionState(cleared_tool_through_id=last["id"]),
+        )
+        tools = self.reload().get_effective_records()[1:]
+        self.assertTrue(all(r["content"] == TOOL_RESULT_CLEARED_CONTENT for r in tools))
+        self.assertTrue(all("agent_status" not in r for r in tools))
+        self.assertEqual(self.reload().messages, original)
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

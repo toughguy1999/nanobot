@@ -7,11 +7,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from nanobot.harness.compress.history import build_idle_cleanup_candidate
 from nanobot.config.loader import load_config, save_config
 from nanobot.config.schema import Config, HistoryCompressionConfig
-from nanobot.providers.base import LLMResponse, ToolCallRequest
+from nanobot.harness.compress.history import build_idle_cleanup_candidate
 from nanobot.harness.session.manager import Session
+from nanobot.providers.base import LLMResponse, ToolCallRequest
 from tests.test_agent_todo import ScriptedProvider, process, setup_loop
 
 
@@ -43,7 +43,6 @@ class CleanupPolicyTests(unittest.TestCase):
                 tool_call_id=f"{index}-a",
                 name="missing",
                 content=f"result {index}-a",
-                agent_status=f"tool status {index}-a",
             )
             session.add_tool_result(
                 tool_call_id=f"{index}-b",
@@ -123,6 +122,10 @@ class CleanupPolicyTests(unittest.TestCase):
             record for record in projected if record["role"] in {"user", "system"}
         ]
         self.assertEqual(projected_users_and_system, original_users_and_system)
+        projected_tools = [r for r in projected if r["role"] == "tool"]
+        self.assertNotIn("agent_status", projected_tools[1])
+        self.assertEqual(projected_tools[3]["agent_status"], "tool status 1-b")
+        self.assertEqual(tools[1]["agent_status"], "tool status 0-b")
         self.assertEqual(projected[2]["content"], "[历史工具结果已清理]")
         self.assertNotIn("agent_status", projected[2])
         self.assertEqual(projected[1]["tool_calls"][0]["id"], projected[2]["tool_call_id"])
@@ -163,10 +166,10 @@ class CleanupPolicyTests(unittest.TestCase):
 class CompressionConfigTests(unittest.TestCase):
     def test_defaults_camel_case_round_trip_and_invalid_values(self):
         defaults = HistoryCompressionConfig()
-        self.assertEqual(defaults.idle_cleanup_after_seconds, 1800)
+        self.assertEqual(defaults.idle_cleanup_after_seconds, 3600)
         self.assertEqual(defaults.keep_tool_rounds, 3)
         self.assertEqual(defaults.keep_reasoning_blocks, 1)
-        self.assertEqual(defaults.threshold_tokens, 50000)
+        self.assertEqual(defaults.threshold_tokens, 200000)
         self.assertEqual(defaults.keep_user_turns, 3)
         self.assertEqual(defaults.recent_budget_ratio, 0.30)
         self.assertEqual(defaults.summary_budget_ratio, 0.10)
@@ -248,10 +251,12 @@ class CleanupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(prepare.call_count, 2)
         self.assertEqual(build_system.call_count, 1)
         self.assertEqual(len(provider.calls), 2)
-        first_progress = publish.call_args_list[2].kwargs["messages"]
-        second_progress = publish.call_args_list[3].kwargs["messages"]
-        self.assertIn("Error: Tool 'missing' not found", first_progress[-1]["content"])
-        self.assertIn("Error: Tool 'missing' not found", second_progress[-1]["content"])
+        batch_progress = publish.call_args_list[2].kwargs["messages"]
+        progress_tools = [m for m in batch_progress if m["role"] == "tool"]
+        self.assertEqual(len(progress_tools), 2)
+        self.assertTrue(all("Error: Tool 'missing' not found" in m["content"] for m in progress_tools))
+        self.assertNotIn("<agent_status>", progress_tools[0]["content"])
+        self.assertIn("<agent_status>", progress_tools[1]["content"])
         second_request_tools = [
             message for message in provider.calls[1]["messages"] if message["role"] == "tool"
         ]
@@ -265,7 +270,8 @@ class CleanupLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("reasoning_content", second_assistant)
         session = sessions.get("cli:one")
         raw_tools = [record for record in session.messages if record["role"] == "tool"]
-        self.assertTrue(all("<agent_status>" in r["agent_status"] for r in raw_tools))
+        self.assertNotIn("agent_status", raw_tools[0])
+        self.assertIn("<agent_status>", raw_tools[1]["agent_status"])
 
     async def test_background_notification_uses_same_cleanup_path(self):
         provider = ScriptedProvider(LLMResponse("done"))

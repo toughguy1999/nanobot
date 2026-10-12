@@ -11,12 +11,12 @@ from xml.etree import ElementTree
 from test_agent_todo import ScriptedProvider, item, process, setup_loop, tool_response
 
 import nanobot.harness.loop as loop_module
-from nanobot.harness.status import AgentStatus
-from nanobot.harness.tools.base import Tool
 from nanobot.bus.events import InboundMessage
-from nanobot.providers.base import LLMResponse, ToolCallRequest
 from nanobot.harness.session.history import to_llm_messages, validate_history_record
 from nanobot.harness.session.manager import Session, SessionManager
+from nanobot.harness.status import AgentStatus
+from nanobot.harness.tools.base import Tool
+from nanobot.providers.base import LLMResponse, ToolCallRequest
 from nanobot.webservice.attachments import WebAttachmentStore
 from nanobot.webservice.serialization import serialize_assistant_record, serialize_user_record
 from nanobot.webservice.service import WebService
@@ -107,17 +107,18 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         provider = ScriptedProvider(response, LLMResponse("done"))
         loop, sessions, root = setup_loop(self, provider)
         loop.tools.register(ExplodingTool())
-        self.clock(100, 102.9, 106, 110, 114, 118, 122)
+        self.clock(100, 102.9, 122)
         await process(loop)
         session = sessions.get("cli:one")
         records = [r for r in session.messages if r["role"] != "assistant"]
-        for record, seconds in zip(records, [2, 6, 10, 14, 18, 22], strict=True):
-            self.assertIn(f"本轮对话已用时间：{seconds} 秒", record["agent_status"])
-            self.assertNotIn("<agent_status>", record["content"])
+        self.assertIn("本轮对话已用时间：2 秒", records[0]["agent_status"])
         self.assertIn("Todo：空", records[0]["agent_status"])
-        self.assertIn("first", records[1]["agent_status"])
-        for record in records[2:]:
-            self.assertIn("last", record["agent_status"])
+        for record in records[1:-1]:
+            self.assertNotIn("agent_status", record)
+        self.assertIn("本轮对话已用时间：22 秒", records[-1]["agent_status"])
+        self.assertIn("last", records[-1]["agent_status"])
+        for record in records:
+            self.assertNotIn("<agent_status>", record["content"])
         for record in records[3:]:
             self.assertIn("Error", record["content"])
         original = copy.deepcopy(records)
@@ -129,9 +130,8 @@ class StatusLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider.calls[1]["messages"][1:], to_llm_messages(reloaded.messages[:-1]))
         self.assertEqual(records, original)
         self.assertTrue(all("agent_status" not in r for r in session.messages if r["role"] == "assistant"))
-        for message in provider.calls[1]["messages"][1:]:
-            if message["role"] != "assistant":
-                self.assertEqual(message["content"].count("<agent_status>"), 1)
+        projected = provider.calls[1]["messages"][1:]
+        self.assertEqual(sum(m["content"].count("<agent_status>") for m in projected if isinstance(m["content"], str)), 2)
         loop_publish = loop_module.publish_context
         self.assertEqual(loop_publish.call_args.kwargs["messages"][1:], to_llm_messages(session.messages))
         self.assertEqual(loop_publish.call_args.kwargs["tools"], provider.calls[1]["tools"])

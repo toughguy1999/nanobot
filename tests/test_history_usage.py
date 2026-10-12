@@ -6,15 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from nanobot.config.schema import HistoryCompressionConfig
 from nanobot.harness.compress.service import HistoryCompressionService
 from nanobot.harness.compress.token_estimate import (
     IMAGE_TOKEN_ESTIMATE,
     estimate_payload_tokens,
 )
-from nanobot.config.schema import HistoryCompressionConfig
-from nanobot.providers.base import LLMResponse
 from nanobot.harness.session.history import to_llm_messages
 from nanobot.harness.session.manager import SessionManager
+from nanobot.providers.base import LLMResponse
 from tests.test_agent_todo import ScriptedProvider, process, setup_loop
 
 
@@ -80,6 +80,24 @@ class FullEstimateTests(unittest.TestCase):
 
 
 class FullEstimateLoopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sparse_tool_batch_estimates_actual_projection(self):
+        from nanobot.providers.base import ToolCallRequest
+
+        provider = ScriptedProvider(LLMResponse(None, [
+            ToolCallRequest(name, "missing", "{}", {}) for name in ["a", "b"]
+        ]), LLMResponse("done"))
+        loop, _, _ = setup_loop(self, provider)
+        with patch.object(
+            loop.history_compression, "estimate_request",
+            wraps=loop.history_compression.estimate_request,
+        ) as estimate:
+            await process(loop)
+        request = estimate.call_args_list[-1].kwargs
+        self.assertEqual(request["messages"], provider.calls[1]["messages"])
+        tools = [m for m in request["messages"] if m["role"] == "tool"]
+        self.assertEqual(sum(m["content"].count("<agent_status>") for m in tools), 1)
+        self.assertEqual(loop.history_compression.estimate_request(**request), estimate_payload_tokens(request))
+
     async def test_each_main_request_is_fully_estimated(self):
         loop, _, _ = setup_loop(
             self,

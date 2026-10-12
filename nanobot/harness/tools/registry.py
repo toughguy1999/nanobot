@@ -1,8 +1,17 @@
 """Tool registry for dynamic tool management."""
 
-from typing import Any
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
+
+from loguru import logger
 
 from nanobot.harness.tools.base import Tool
+from nanobot.harness.tools.scheduler import execute_batch
+
+if TYPE_CHECKING:
+    from nanobot.providers.base import ToolCallRequest
 
 
 class ToolRegistry:
@@ -60,6 +69,27 @@ class ToolRegistry:
             return await tool.execute(**params)
         except Exception as e:
             return f"Error executing {name}: {str(e)}"
+
+    def _is_concurrency_safe(self, call: ToolCallRequest) -> bool:
+        tool = self.get(call.name)
+        if tool is None:
+            return False
+        try:
+            return tool.isConcurrencySafe(call.arguments) is True
+        except Exception as exc:
+            logger.warning("Concurrency safety check failed for {}: {}", call.name, exc)
+            return False
+
+    async def execute_batch(
+        self, calls: Sequence[ToolCallRequest], *, max_concurrency: int,
+    ) -> list[str]:
+        """Execute a model response, preserving its original result order."""
+        return await execute_batch(
+            calls,
+            is_safe=self._is_concurrency_safe,
+            execute=lambda call: self.execute(call.name, call.arguments),
+            max_concurrency=max_concurrency,
+        )
 
     @property
     def tool_names(self) -> list[str]:

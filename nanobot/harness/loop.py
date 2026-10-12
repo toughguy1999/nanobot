@@ -7,10 +7,13 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
+from nanobot.bus.queue import MessageBus
 from nanobot.harness.attachments import stabilize_user_message
 from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS, compress_tool_result
 from nanobot.harness.compress.service import HistoryCompressionService
 from nanobot.harness.context import ContextBuilder
+from nanobot.harness.session.manager import Session, SessionManager
 from nanobot.harness.status import AgentStatus
 from nanobot.harness.subagent import SubagentManager
 from nanobot.harness.tools.cron import CronTool
@@ -18,16 +21,14 @@ from nanobot.harness.tools.filesystem import EditFileTool, WriteFileTool
 from nanobot.harness.tools.message import MessageTool
 from nanobot.harness.tools.rag import AbsurdNovelKnowledgeSearchTool
 from nanobot.harness.tools.registry import ToolRegistry
+from nanobot.harness.tools.scheduler import DEFAULT_MAX_TOOL_CONCURRENCY
 from nanobot.harness.tools.shell import ExecTool
 from nanobot.harness.tools.skills import LoadSkillTool
 from nanobot.harness.tools.spawn import SpawnTool
 from nanobot.harness.tools.todo import TodoEditTool
 from nanobot.harness.tools.web import WebFetchTool, WebSearchTool
-from nanobot.bus.events import InboundAttachment, InboundMessage, OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.utils._debug import publish_context
 from nanobot.providers.base import LLMProvider
-from nanobot.harness.session.manager import Session, SessionManager
+from nanobot.utils._debug import publish_context
 
 if TYPE_CHECKING:
     from nanobot.config.schema import ExecToolConfig, HistoryCompressionConfig
@@ -54,6 +55,7 @@ class AgentLoop:
         model: str | None = None,
         max_iterations: int = 100,
         max_tool_result_tokens: int = DEFAULT_MAX_TOOL_RESULT_TOKENS,
+        max_tool_concurrency: int = DEFAULT_MAX_TOOL_CONCURRENCY,
         tavily_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
@@ -71,6 +73,7 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.max_tokens = max_tokens
         self.max_tool_result_tokens = max_tool_result_tokens
+        self.max_tool_concurrency = max_tool_concurrency
         self.tavily_api_key = tavily_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
@@ -95,6 +98,7 @@ class AgentLoop:
             workspace=workspace,
             bus=bus,
             max_tool_result_tokens=max_tool_result_tokens,
+            max_tool_concurrency=max_tool_concurrency,
             model=self.model,
             max_tokens=self.max_tokens,
             tavily_api_key=tavily_api_key,
@@ -413,26 +417,27 @@ class AgentLoop:
             for tool_call in response.tool_calls:
                 args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                 logger.info(f"Tool call: {tool_call.name}({args_str[:200]})")
-                try:
-                    result = await turn_tools.execute(tool_call.name, tool_call.arguments)
-                except Exception as exc:
-                    result = f"Error executing {tool_call.name}: {str(exc)}"
-                result = compress_tool_result(result, self.max_tool_result_tokens)
+            results = await turn_tools.execute_batch(
+                response.tool_calls, max_concurrency=self.max_tool_concurrency,
+            )
+            results = [compress_tool_result(result, self.max_tool_result_tokens) for result in results]
+            snapshot = status.snapshot(session)
+            for index, (tool_call, result) in enumerate(zip(response.tool_calls, results, strict=True)):
                 logger.info(f"Tool result: {tool_call.name}({result})")
                 tool_record = session.add_tool_result(
                     tool_call_id=tool_call.id,
                     name=tool_call.name,
                     content=result,
-                    agent_status=status.snapshot(session),
+                    agent_status=snapshot if index == len(results) - 1 else None,
                 )
                 self.sessions.append(session, tool_record)
-                messages = self._build_main_messages(
-                    session,
-                    channel=channel,
-                    chat_id=chat_id,
-                    system_prompt=system_prompt,
-                )
-                publish_context(model=self.model, messages=messages, tools=tools)
+            messages = self._build_main_messages(
+                session,
+                channel=channel,
+                chat_id=chat_id,
+                system_prompt=system_prompt,
+            )
+            publish_context(model=self.model, messages=messages, tools=tools)
 
         return self._persist_final(
             session=session,

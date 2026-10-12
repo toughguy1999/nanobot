@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from nanobot.harness.compress import DEFAULT_MAX_TOOL_RESULT_TOKENS
+from nanobot.harness.tools.scheduler import DEFAULT_MAX_TOOL_CONCURRENCY
 
 
 class WhatsAppConfig(BaseModel):
@@ -255,6 +256,7 @@ class ExecToolConfig(BaseModel):
 
 class ToolsConfig(BaseModel):
     """Tools configuration."""
+    max_concurrency: int = Field(default=DEFAULT_MAX_TOOL_CONCURRENCY, strict=True, gt=0)
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
