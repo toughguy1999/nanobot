@@ -9,6 +9,7 @@ docs/*
 !docs/architecture.md
 scripts/
 rag_test/
+rag-test/model/
 !rag_test/source
 mcp_test/
 openspec/
