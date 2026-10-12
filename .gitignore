@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .vscode
 .nanobot
 .agents
@@ -10,6 +12,12 @@ rag_test/
 !rag_test/source
 mcp_test/
 openspec/
-uv.lock
 __pycache__/
+.venv/
+.uv-cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+dist/
 .pnpm-store/
